@@ -1,16 +1,20 @@
-# Exclude everything by default, then whitelist
-*
-
-# Allow only what the Dockerfile needs
-!requirements.txt
-!api.py
-!src/
-!mpv2_output/checkpoints/best_model.pth
-
-# Always exclude
+venv/
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-.git/
-.gitignore
 .env
+.env.local
+chroma_db/
+data/
+checkpoints/
+Model*/
+output*/
+predictions*/
+comparisons*/
+overlays/
+masks/
+*.zip
+*.pdf
+.git/
+.pytest_cache/
+tests/
