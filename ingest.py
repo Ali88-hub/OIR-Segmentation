@@ -82,19 +82,10 @@ def fetch_abstracts(pmids: list[str]) -> list[dict]:
                 fore = auth.get("ForeName", "")
                 if last:
                     authors_parsed.append(f"{last} {fore}".strip())
-            authors = (
-                ", ".join(authors_parsed[:3])
-                + (" et al." if len(authors_parsed) > 3 else "")
-            )
+            authors = ", ".join(authors_parsed[:3]) + (" et al." if len(authors_parsed) > 3 else "")
 
-            pub_date = (
-                article.get("Journal", {})
-                .get("JournalIssue", {})
-                .get("PubDate", {})
-            )
-            year = str(
-                pub_date.get("Year", str(pub_date.get("MedlineDate", ""))[:4])
-            )
+            pub_date = article.get("Journal", {}).get("JournalIssue", {}).get("PubDate", {})
+            year = str(pub_date.get("Year", str(pub_date.get("MedlineDate", ""))[:4]))
             journal = str(article.get("Journal", {}).get("Title", ""))
 
             articles.append(
@@ -131,7 +122,7 @@ def ingest(
         print(f"Loading embedding model: {EMBEDDING_MODEL}")
         model = SentenceTransformer(EMBEDDING_MODEL)
     else:
-        print(f"Reusing pre-loaded embedding model.")
+        print("Reusing pre-loaded embedding model.")
 
     client = chromadb.PersistentClient(path=str(CHROMA_PATH))
     collection = client.get_or_create_collection(
@@ -233,6 +224,7 @@ def _chunk_text(text: str, chunk_size: int = 800) -> list[str]:
 def _oir_csv_to_text(path: Path) -> str:
     """Convert OIR.csv rows to embeddable natural-language sentences."""
     import csv as _csv
+
     lines: list[str] = []
     with open(path, newline="", encoding="utf-8-sig", errors="ignore") as fh:
         reader = _csv.DictReader(fh)
@@ -292,6 +284,7 @@ def ingest_local(
         elif suffix == ".pdf":
             try:
                 import fitz  # pymupdf
+
                 doc = fitz.open(str(path))
                 text = "\n\n".join(page.get_text() for page in doc)
             except ImportError:
@@ -310,7 +303,9 @@ def ingest_local(
         print(f"  {path.name}: {len(chunks)} chunk(s)")
 
         for ci, chunk in enumerate(chunks):
-            chunk_id = "local_" + hashlib.md5((path.name + str(ci) + chunk).encode()).hexdigest()[:16]
+            chunk_id = (
+                "local_" + hashlib.md5((path.name + str(ci) + chunk).encode()).hexdigest()[:16]
+            )
             if chunk_id in existing_ids:
                 continue
             all_chunks.append(
@@ -386,7 +381,9 @@ def main() -> None:
         for p in args.local:
             path = Path(p)
             if path.is_dir():
-                paths.extend(f for f in path.iterdir() if f.suffix.lower() in (".txt", ".pdf", ".csv"))
+                paths.extend(
+                    f for f in path.iterdir() if f.suffix.lower() in (".txt", ".pdf", ".csv")
+                )
             else:
                 paths.append(path)
         ingest_local(paths, chunk_size=args.chunk_size)

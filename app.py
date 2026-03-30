@@ -6,14 +6,15 @@ Run:
 """
 
 import warnings
+
 warnings.filterwarnings("ignore", message="Accessing `__path__`")
 
+import csv
 import io
 import os
 import re
 import shutil
 import zipfile
-import csv
 from datetime import datetime
 from html import escape as html_escape
 from pathlib import Path
@@ -25,29 +26,33 @@ from PIL import Image
 
 from src.config import Config
 from src.predict import (
-    get_preprocess,
-    predict_single,
-    postprocess_all,
-    load_vessel_mask,
     MAX_INPUT_SIZE,
+    get_preprocess,
+    load_vessel_mask,
+    postprocess_all,
+    predict_single,
 )
 from theme import inject_theme, page_header, section_header, sidebar_legend, sidebar_status
 
 # ── RAG (optional) ────────────────────────────────────────────────────────────
 try:
     import rag as _rag
+
     _rag_available = True
 except ImportError:
     _rag_available = False
 
 
 if _rag_available:
+
     @st.cache_resource(show_spinner="Loading PubMed index…")
     def _get_rag_retriever():
         return _rag._load_retriever()
 else:
+
     def _get_rag_retriever():
         return None, None
+
 
 # ── Filename parser ────────────────────────────────────────────────────────────
 def parse_filename(name: str) -> dict:
@@ -99,12 +104,10 @@ def parse_filename(name: str) -> dict:
         rest = ""
 
     if rest:
-        animal_match = re.search(
-            r"(Litter\s*\d|[Ll]\d[\s_]+[Mm]\d|[Mm]\d+[LR]\b)", rest
-        )
+        animal_match = re.search(r"(Litter\s*\d|[Ll]\d[\s_]+[Mm]\d|[Mm]\d+[LR]\b)", rest)
         if animal_match:
             protocol = rest[: animal_match.start()].strip("_").strip()
-            animal = rest[animal_match.start():].strip()
+            animal = rest[animal_match.start() :].strip()
         else:
             parts = rest.split("_")
             protocol = "_".join(parts[:-1]).strip()
@@ -131,16 +134,16 @@ def parse_filename(name: str) -> dict:
 CHECKPOINT = "Model V4 output/checkpoints/best_model.pth"
 Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 MP cap; allow large retinal flatmounts
 MASK_COLORS = {
-    "nv":         (1.0, 0.0, 0.0),
-    "vo":         (1.0, 1.0, 1.0),
-    "retina":     (0.3, 0.3, 1.0),
+    "nv": (1.0, 0.0, 0.0),
+    "vo": (1.0, 1.0, 1.0),
+    "retina": (0.3, 0.3, 1.0),
     "background": (0.3, 0.3, 1.0),
 }
 _MAX_RAG_MESSAGES = 50
 MASK_LABELS = {
-    "nv":         "Neovascular",
-    "vo":         "Vaso-Obliterated",
-    "retina":     "Retina",
+    "nv": "Neovascular",
+    "vo": "Vaso-Obliterated",
+    "retina": "Retina",
     "background": "Retina",
 }
 
@@ -158,6 +161,7 @@ page_header(
     subtitle="Retinal Flatmount Segmentation",
     caption="U-Net + EfficientNet-B4  ·  scSE Attention  ·  Neovascular / Vaso-Obliterated / Background",
 )
+
 
 # ── Load model (cached) ───────────────────────────────────────────────────────
 @st.cache_resource(show_spinner="Loading model…")
@@ -178,6 +182,7 @@ def get_model(ckpt_mtime: float):
     has_scse = any("sSE" in k or "cSE" in k for k in state.keys())
     config.decoder_attention = "scse" if has_scse else None
     from src.model import build_model
+
     model = build_model(config)
     model.load_state_dict(state)
     model.to(device)
@@ -187,54 +192,100 @@ def get_model(ckpt_mtime: float):
 
 
 if not Path(CHECKPOINT).exists():
-    st.error(f"Checkpoint not found: `{CHECKPOINT}`\n\nPlace `best_model.pth` at `Model V4 output/checkpoints/`.")
+    st.error(
+        f"Checkpoint not found: `{CHECKPOINT}`\n\nPlace `best_model.pth` at `Model V4 output/checkpoints/`."
+    )
     st.stop()
 
 model, preprocess, config, device = get_model(os.path.getmtime(CHECKPOINT))
 sidebar_status(f"Model loaded  ·  {device}")
 
 # ── Sidebar controls ──────────────────────────────────────────────────────────
-st.sidebar.markdown("""
+st.sidebar.markdown(
+    """
 <h3 style="font-family:'Playfair Display',serif;color:#C5A55A;margin-bottom:0.5rem;">Settings</h3>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.sidebar.markdown("""
+st.sidebar.markdown(
+    """
 <p style="color:#9A8B6F;font-size:0.75rem;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:0.3rem;">Thresholds</p>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-thresh_nv = st.sidebar.number_input("NV — Neovascular", 0.01, 0.99, 0.69, 0.01, format="%.2f",
-                                     help="Recommended 0.65–0.71 · optimal 0.69 (V4)")
-thresh_vo = st.sidebar.number_input("VO — Vaso-Obliterated", 0.01, 0.99, 0.59, 0.01, format="%.2f",
-                                     help="Recommended 0.55–0.63 · optimal 0.59 (V4)")
-thresh_bg = st.sidebar.number_input("BG — Retina", 0.01, 0.99, 0.67, 0.01, format="%.2f",
-                                     help="Recommended 0.63–0.69 · optimal 0.67 (V4)")
+thresh_nv = st.sidebar.number_input(
+    "NV — Neovascular",
+    0.01,
+    0.99,
+    0.69,
+    0.01,
+    format="%.2f",
+    help="Recommended 0.65–0.71 · optimal 0.69 (V4)",
+)
+thresh_vo = st.sidebar.number_input(
+    "VO — Vaso-Obliterated",
+    0.01,
+    0.99,
+    0.59,
+    0.01,
+    format="%.2f",
+    help="Recommended 0.55–0.63 · optimal 0.59 (V4)",
+)
+thresh_bg = st.sidebar.number_input(
+    "BG — Retina",
+    0.01,
+    0.99,
+    0.67,
+    0.01,
+    format="%.2f",
+    help="Recommended 0.63–0.69 · optimal 0.67 (V4)",
+)
 thresholds = {"nv": thresh_nv, "vo": thresh_vo, "retina": thresh_bg, "background": thresh_bg}
 
-st.sidebar.markdown("""
+st.sidebar.markdown(
+    """
 <div style="background:rgba(197,165,90,0.07);border:1px solid rgba(197,165,90,0.15);
             border-radius:7px;padding:0.4rem 0.65rem;margin-top:0.2rem;">
   <span style="color:#9A8B6F;font-size:0.68rem;letter-spacing:0.06em;text-transform:uppercase;">rec:&nbsp;</span>
   <span style="color:#BFB39A;font-size:0.68rem;">NV 0.65–0.71&nbsp;·&nbsp;VO 0.55–0.63&nbsp;·&nbsp;BG 0.63–0.69</span>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-st.sidebar.markdown("""<div style="height:1px;margin:0.8rem 0;background:linear-gradient(90deg,rgba(197,165,90,0.4),rgba(197,165,90,0.05),transparent);"></div>""", unsafe_allow_html=True)
+st.sidebar.markdown(
+    """<div style="height:1px;margin:0.8rem 0;background:linear-gradient(90deg,rgba(197,165,90,0.4),rgba(197,165,90,0.05),transparent);"></div>""",
+    unsafe_allow_html=True,
+)
 
-tta = st.sidebar.checkbox("Test-Time Augmentation (TTA)", value=False,
-                           help="Average predictions over flips — slower but more accurate")
+tta = st.sidebar.checkbox(
+    "Test-Time Augmentation (TTA)",
+    value=False,
+    help="Average predictions over flips — slower but more accurate",
+)
 show_prob = st.sidebar.checkbox("Show probability maps", value=False)
 
-st.sidebar.markdown("""<div style="height:1px;margin:0.8rem 0;background:linear-gradient(90deg,rgba(197,165,90,0.4),rgba(197,165,90,0.05),transparent);"></div>""", unsafe_allow_html=True)
+st.sidebar.markdown(
+    """<div style="height:1px;margin:0.8rem 0;background:linear-gradient(90deg,rgba(197,165,90,0.4),rgba(197,165,90,0.05),transparent);"></div>""",
+    unsafe_allow_html=True,
+)
 
-st.sidebar.markdown("""
+st.sidebar.markdown(
+    """
 <p style="font-family:'Playfair Display',serif;color:#E8D5A3;font-size:0.95rem;font-weight:600;margin-bottom:0.4rem;">Mask Colours</p>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-sidebar_legend([
-    ("NV", "Neovascularization", MASK_COLORS["nv"]),
-    ("VO", "Vascular Obliteration", MASK_COLORS["vo"]),
-    ("BG", "Retina", MASK_COLORS["retina"]),
-])
+sidebar_legend(
+    [
+        ("NV", "Neovascularization", MASK_COLORS["nv"]),
+        ("VO", "Vascular Obliteration", MASK_COLORS["vo"]),
+        ("BG", "Retina", MASK_COLORS["retina"]),
+    ]
+)
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab_single, tab_batch, tab_lit = st.tabs(["Single Image", "Batch", "Literature"])
@@ -254,7 +305,7 @@ with tab_single:
     if uploaded is not None:
         try:
             image_pil = Image.open(uploaded).convert("RGB")
-        except (Image.UnidentifiedImageError, IOError, OSError) as e:
+        except (Image.UnidentifiedImageError, OSError) as e:
             st.error(f"Could not open image: {e}")
             st.stop()
         image_np = np.array(image_pil)
@@ -269,11 +320,14 @@ with tab_single:
             if orig_h > MAX_INPUT_SIZE or orig_w > MAX_INPUT_SIZE:
                 st.warning(f"Image exceeds {MAX_INPUT_SIZE}px — will be downscaled.")
 
-        run = st.button("Run Segmentation", type="primary", use_container_width=True, key="run_single")
+        run = st.button(
+            "Run Segmentation", type="primary", use_container_width=True, key="run_single"
+        )
 
         if run:
             _infer_placeholder = st.empty()
-            _infer_placeholder.markdown("""
+            _infer_placeholder.markdown(
+                """
 <div style="display:flex;justify-content:center;padding:0.6rem 0 0.4rem 0;">
 <svg width="220" height="190" viewBox="0 0 220 190" xmlns="http://www.w3.org/2000/svg">
   <defs>
@@ -413,10 +467,18 @@ with tab_single:
         letter-spacing="2.5">RUNNING INFERENCE</text>
 </svg>
 </div>
-""", unsafe_allow_html=True)
+""",
+                unsafe_allow_html=True,
+            )
             try:
                 masks_prob, _ = predict_single(
-                    model, image_np, preprocess, device, config, tta=tta, threshold=0.5,
+                    model,
+                    image_np,
+                    preprocess,
+                    device,
+                    config,
+                    tta=tta,
+                    threshold=0.5,
                 )
             except Exception as e:
                 st.error(f"Segmentation failed: {e}")
@@ -424,11 +486,15 @@ with tab_single:
             finally:
                 _infer_placeholder.empty()
             # Apply per-class thresholds, then post-process all masks
-            raw = [(masks_prob[i] > thresholds[name]).astype(np.uint8)
-                   for i, name in enumerate(config.mask_names)]
+            raw = [
+                (masks_prob[i] > thresholds[name]).astype(np.uint8)
+                for i, name in enumerate(config.mask_names)
+            ]
             stem = Path(uploaded.name).stem
             vessel_mask = load_vessel_mask(stem, config.manifest_path, config.data_root)
-            masks_binary = postprocess_all(np.stack(raw), config.mask_names, vessel_mask=vessel_mask, config=config)
+            masks_binary = postprocess_all(
+                np.stack(raw), config.mask_names, vessel_mask=vessel_mask, config=config
+            )
 
             # Denominator = total retinal area (Connor et al. 2009 standard).
             # "retina" = retinal tissue; union of all masks = retinal area.
@@ -444,7 +510,11 @@ with tab_single:
                 px = int(masks_binary[i].sum())
                 pct = round(100 * px / total_pixels, 4)
                 seg_metrics[f"{name}_pct"] = pct
-                col.metric(label=MASK_LABELS.get(name, name.upper()), value=f"{pct:.2f}%", delta=f"{px:,} px")
+                col.metric(
+                    label=MASK_LABELS.get(name, name.upper()),
+                    value=f"{pct:.2f}%",
+                    delta=f"{px:,} px",
+                )
 
             # Store results in session state so the explanation section can access them
             st.session_state["single_seg_results"] = {
@@ -471,7 +541,11 @@ with tab_single:
                     for c, cv in enumerate(color):
                         overlay[..., c] = base[..., c] * (1 - alpha) + cv * alpha
                 overlay_uint8 = (np.clip(overlay, 0, 1) * 255).astype(np.uint8)
-                col.image(overlay_uint8, caption=MASK_LABELS.get(name, name.upper()), use_container_width=True)
+                col.image(
+                    overlay_uint8,
+                    caption=MASK_LABELS.get(name, name.upper()),
+                    use_container_width=True,
+                )
                 buf = io.BytesIO()
                 Image.fromarray(overlay_uint8).save(buf, format="PNG")
                 overlay_bufs[name] = buf.getvalue()
@@ -480,7 +554,11 @@ with tab_single:
                 section_header("Probability Maps")
                 prob_cols = st.columns(len(config.mask_names))
                 for i, (col, name) in enumerate(zip(prob_cols, config.mask_names)):
-                    col.image((masks_prob[i] * 255).astype(np.uint8), caption=f"{MASK_LABELS.get(name, name.upper())} prob", use_container_width=True)
+                    col.image(
+                        (masks_prob[i] * 255).astype(np.uint8),
+                        caption=f"{MASK_LABELS.get(name, name.upper())} prob",
+                        use_container_width=True,
+                    )
 
             section_header("Download")
             stem = Path(uploaded.name).stem
@@ -514,7 +592,9 @@ with tab_single:
             section_header("AI Interpretation")
 
             if not _rag_available:
-                st.warning("RAG module not available — install dependencies to enable AI interpretation.")
+                st.warning(
+                    "RAG module not available — install dependencies to enable AI interpretation."
+                )
             else:
                 # Show parsed experiment metadata
                 meta = parse_filename(uploaded.name)
@@ -538,9 +618,16 @@ with tab_single:
                                 unsafe_allow_html=True,
                             )
                 else:
-                    st.caption("No structured metadata found in filename — interpretation will use raw name only.")
+                    st.caption(
+                        "No structured metadata found in filename — interpretation will use raw name only."
+                    )
 
-                if st.button("Explain Results with AI", type="primary", use_container_width=True, key="explain_single"):
+                if st.button(
+                    "Explain Results with AI",
+                    type="primary",
+                    use_container_width=True,
+                    key="explain_single",
+                ):
                     try:
                         _get_rag_retriever()  # ensure retriever is loaded
                         sources, stream = _rag.explain_segmentation(saved["metrics"], meta)
@@ -553,11 +640,14 @@ with tab_single:
                                 for src in sources:
                                     label = (
                                         f"[{src['ref']}]  {src['title']}  ({src['year']})"
-                                        if src["year"] else f"[{src['ref']}]  {src['title']}"
+                                        if src["year"]
+                                        else f"[{src['ref']}]  {src['title']}"
                                     )
                                     st.markdown(f"**{label}**")
                                     if src["authors"]:
-                                        st.caption(f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`")
+                                        st.caption(
+                                            f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
+                                        )
                                     if src["url"]:
                                         st.link_button("Open in PubMed", src["url"])
 
@@ -574,13 +664,18 @@ with tab_batch:
     )
 
     if batch_files:
-        st.markdown(f"""
+        st.markdown(
+            f"""
         <p style="color:#9A8B6F;font-size:0.85rem;margin:0.3rem 0 1rem 0;">
             {len(batch_files)} image{"s" if len(batch_files) != 1 else ""} queued
         </p>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
-        run_batch = st.button("Run Batch Segmentation", type="primary", use_container_width=True, key="run_batch")
+        run_batch = st.button(
+            "Run Batch Segmentation", type="primary", use_container_width=True, key="run_batch"
+        )
 
         if run_batch:
             progress_bar = st.progress(0, text="Starting…")
@@ -594,7 +689,7 @@ with tab_batch:
 
                     try:
                         img_pil = Image.open(f).convert("RGB")
-                    except (Image.UnidentifiedImageError, IOError, OSError) as e:
+                    except (Image.UnidentifiedImageError, OSError) as e:
                         st.warning(f"Skipping {f.name}: could not open image ({e})")
                         continue
                     img_np = np.array(img_pil)
@@ -602,16 +697,28 @@ with tab_batch:
 
                     try:
                         masks_prob, _ = predict_single(
-                            model, img_np, preprocess, device, config, tta=tta, threshold=0.5,
+                            model,
+                            img_np,
+                            preprocess,
+                            device,
+                            config,
+                            tta=tta,
+                            threshold=0.5,
                         )
                     except Exception as e:
                         st.warning(f"Skipping {f.name}: segmentation failed ({e})")
                         continue
-                    raw = [(masks_prob[i] > thresholds[name]).astype(np.uint8)
-                           for i, name in enumerate(config.mask_names)]
+                    raw = [
+                        (masks_prob[i] > thresholds[name]).astype(np.uint8)
+                        for i, name in enumerate(config.mask_names)
+                    ]
                     batch_stem = Path(f.name).stem
-                    batch_vessel = load_vessel_mask(batch_stem, config.manifest_path, config.data_root)
-                    masks_binary = postprocess_all(np.stack(raw), config.mask_names, vessel_mask=batch_vessel, config=config)
+                    batch_vessel = load_vessel_mask(
+                        batch_stem, config.manifest_path, config.data_root
+                    )
+                    masks_binary = postprocess_all(
+                        np.stack(raw), config.mask_names, vessel_mask=batch_vessel, config=config
+                    )
 
                     # Retinal area denominator (Connor et al. 2009 standard)
                     retinal_mask_b = np.zeros((h, w), dtype=np.uint8)
@@ -636,7 +743,11 @@ with tab_batch:
 
                 # Write CSV
                 csv_buf = io.StringIO()
-                fieldnames = ["filename"] + [f"{n}_px" for n in config.mask_names] + [f"{n}_pct" for n in config.mask_names]
+                fieldnames = (
+                    ["filename"]
+                    + [f"{n}_px" for n in config.mask_names]
+                    + [f"{n}_pct" for n in config.mask_names]
+                )
                 writer = csv.DictWriter(csv_buf, fieldnames=fieldnames)
                 writer.writeheader()
                 writer.writerows(results)
@@ -649,9 +760,9 @@ with tab_batch:
             mask_names = list(config.mask_names)
             header_cells = "".join(
                 f'<th style="padding:0.55rem 1.2rem;text-align:left;color:#C5A55A;'
-                f'font-family:\'Playfair Display\',serif;font-weight:600;font-size:0.85rem;'
+                f"font-family:'Playfair Display',serif;font-weight:600;font-size:0.85rem;"
                 f'letter-spacing:0.06em;border-bottom:1px solid rgba(197,165,90,0.25);">'
-                f'{MASK_LABELS.get(n, n.upper())} %</th>'
+                f"{MASK_LABELS.get(n, n.upper())} %</th>"
                 for n in mask_names
             )
             rows_html = ""
@@ -659,20 +770,21 @@ with tab_batch:
                 bg = "rgba(197,165,90,0.04)" if ri % 2 == 0 else "transparent"
                 fname_cell = (
                     f'<td style="padding:0.5rem 1.2rem;color:#BFB39A;font-size:0.82rem;'
-                    f'border-bottom:1px solid rgba(197,165,90,0.08);white-space:nowrap;'
+                    f"border-bottom:1px solid rgba(197,165,90,0.08);white-space:nowrap;"
                     f'max-width:260px;overflow:hidden;text-overflow:ellipsis;">'
-                    f'{html_escape(row["filename"])}</td>'
+                    f"{html_escape(row['filename'])}</td>"
                 )
                 val_cells = "".join(
                     f'<td style="padding:0.5rem 1.2rem;color:#E8D5A3;font-size:0.82rem;'
-                    f'font-family:\'Inter\',sans-serif;text-align:left;'
+                    f"font-family:'Inter',sans-serif;text-align:left;"
                     f'border-bottom:1px solid rgba(197,165,90,0.08);">'
-                    f'{row[f"{n}_pct"]:.2f}%</td>'
+                    f"{row[f'{n}_pct']:.2f}%</td>"
                     for n in mask_names
                 )
                 rows_html += f'<tr style="background:{bg};">{fname_cell}{val_cells}</tr>'
 
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div style="overflow-x:auto;border:1px solid rgba(197,165,90,0.22);
                         border-radius:12px;backdrop-filter:blur(16px);
                         background:rgba(20,18,14,0.62);margin-bottom:1rem;">
@@ -689,7 +801,9 @@ with tab_batch:
                     <tbody>{rows_html}</tbody>
                 </table>
             </div>
-            """, unsafe_allow_html=True)
+            """,
+                unsafe_allow_html=True,
+            )
 
             # ── Download ZIP ───────────────────────────────────────────────
             section_header("Download")
@@ -720,19 +834,28 @@ with tab_lit:
                 key="pubmed_query_input",
             )
             pubmed_max = st.number_input(
-                "Max results per query", min_value=10, max_value=1000, value=200, step=10,
+                "Max results per query",
+                min_value=10,
+                max_value=1000,
+                value=200,
+                step=10,
                 key="pubmed_max_results",
             )
-            if st.button("Fetch from PubMed", key="ingest_pubmed_btn", disabled=not pubmed_queries.strip()):
+            if st.button(
+                "Fetch from PubMed", key="ingest_pubmed_btn", disabled=not pubmed_queries.strip()
+            ):
                 queries = [q.strip() for q in pubmed_queries.strip().splitlines() if q.strip()]
                 with st.spinner(f"Fetching {len(queries)} query/queries from PubMed…"):
                     from ingest import ingest as _ingest_pubmed
+
                     embed_model, _ = _get_rag_retriever()
                     n = _ingest_pubmed(queries, max_per_query=pubmed_max, model=embed_model)
                 if n:
                     st.success(f"Added {n} new abstract(s) to the database.")
                 else:
-                    st.info("No new abstracts found — may already be ingested or no results matched.")
+                    st.info(
+                        "No new abstracts found — may already be ingested or no results matched."
+                    )
 
         with st.expander("Ingest local data"):
             local_files = st.file_uploader(
@@ -743,6 +866,7 @@ with tab_lit:
             )
             if st.button("Ingest files", key="ingest_local_btn", disabled=not local_files):
                 import tempfile
+
                 tmp_dir = Path(tempfile.mkdtemp())
                 try:
                     tmp_paths = []
@@ -756,6 +880,7 @@ with tab_lit:
                         tmp_paths.append(p)
                     with st.spinner(f"Ingesting {len(tmp_paths)} file(s)…"):
                         from ingest import ingest_local as _ingest_local
+
                         n = _ingest_local(tmp_paths)
                     if n:
                         st.success(f"Added {n} new chunk(s) to the database.")
@@ -786,11 +911,17 @@ with tab_lit:
                     with st.spinner("Searching PubMed index…"):
                         results = _rag.retrieve(query.strip())
                     if not results:
-                        st.info("No results found. Make sure the PubMed RAG database has been ingested (`python ingest.py`).")
+                        st.info(
+                            "No results found. Make sure the PubMed RAG database has been ingested (`python ingest.py`)."
+                        )
                     else:
                         section_header(f"{len(results)} abstracts found")
                         for src in results:
-                            label = f"[{src['score']:.2f}]  {src['title']}  ({src['year']})" if src["year"] else f"[{src['score']:.2f}]  {src['title']}"
+                            label = (
+                                f"[{src['score']:.2f}]  {src['title']}  ({src['year']})"
+                                if src["year"]
+                                else f"[{src['score']:.2f}]  {src['title']}"
+                            )
                             with st.expander(label):
                                 if src["authors"]:
                                     st.markdown(f"**{src['authors']}** · *{src['journal']}*")
@@ -812,10 +943,16 @@ with tab_lit:
                     if msg["role"] == "assistant" and msg.get("sources"):
                         with st.expander(f"Sources ({len(msg['sources'])})"):
                             for src in msg["sources"]:
-                                label = f"[{src['ref']}]  {src['title']}  ({src['year']})" if src["year"] else f"[{src['ref']}]  {src['title']}"
+                                label = (
+                                    f"[{src['ref']}]  {src['title']}  ({src['year']})"
+                                    if src["year"]
+                                    else f"[{src['ref']}]  {src['title']}"
+                                )
                                 st.markdown(f"**{label}**")
                                 if src["authors"]:
-                                    st.caption(f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`")
+                                    st.caption(
+                                        f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
+                                    )
                                 if src["url"]:
                                     st.link_button("Open in PubMed", src["url"])
 
@@ -823,8 +960,10 @@ with tab_lit:
                 with st.chat_message("user"):
                     st.write(prompt)
 
-                history = [{"role": m["role"], "content": m["content"]}
-                           for m in st.session_state.rag_messages]
+                history = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.rag_messages
+                ]
                 try:
                     sources, stream = _rag.chat_stream(prompt, history)
                 except RuntimeError as err:
@@ -835,14 +974,24 @@ with tab_lit:
                         if sources:
                             with st.expander(f"Sources ({len(sources)})"):
                                 for src in sources:
-                                    label = f"[{src['ref']}]  {src['title']}  ({src['year']})" if src["year"] else f"[{src['ref']}]  {src['title']}"
+                                    label = (
+                                        f"[{src['ref']}]  {src['title']}  ({src['year']})"
+                                        if src["year"]
+                                        else f"[{src['ref']}]  {src['title']}"
+                                    )
                                     st.markdown(f"**{label}**")
                                     if src["authors"]:
-                                        st.caption(f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`")
+                                        st.caption(
+                                            f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
+                                        )
                                     if src["url"]:
                                         st.link_button("Open in PubMed", src["url"])
 
                     st.session_state.rag_messages.append({"role": "user", "content": prompt})
-                    st.session_state.rag_messages.append({"role": "assistant", "content": answer, "sources": sources})
+                    st.session_state.rag_messages.append(
+                        {"role": "assistant", "content": answer, "sources": sources}
+                    )
                     if len(st.session_state.rag_messages) > _MAX_RAG_MESSAGES:
-                        st.session_state.rag_messages = st.session_state.rag_messages[-_MAX_RAG_MESSAGES:]
+                        st.session_state.rag_messages = st.session_state.rag_messages[
+                            -_MAX_RAG_MESSAGES:
+                        ]

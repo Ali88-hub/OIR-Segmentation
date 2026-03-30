@@ -6,7 +6,6 @@ Inspired by aged stone / weathered metal with champagne gold accents.
 import streamlit as st
 import streamlit.components.v1 as components
 
-
 # ── Palette ───────────────────────────────────────────────────────────────────
 GOLD = "#C5A55A"
 GOLD_BRIGHT = "#D4B96A"
@@ -21,7 +20,7 @@ def inject_theme():
     """Call once after st.set_page_config to apply the full custom theme."""
     st.markdown(
         '<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:'
-        'ital,wght@0,400..900;1,400..900&family=Inter:wght@300;400;500;600'
+        "ital,wght@0,400..900;1,400..900&family=Inter:wght@300;400;500;600"
         '&display=swap" rel="stylesheet">',
         unsafe_allow_html=True,
     )
@@ -31,8 +30,10 @@ def inject_theme():
 
 # ── Reusable UI helpers ───────────────────────────────────────────────────────
 
+
 def page_header(title: str, subtitle: str, caption: str):
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div style="padding:0.5rem 0 0.8rem 0;position:relative;">
         <div style="display:flex;align-items:center;gap:0.7rem;margin-bottom:0.35rem;">
             <span style="
@@ -64,11 +65,14 @@ def page_header(title: str, subtitle: str, caption: str):
             font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;margin:0;
         ">{caption}</p>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def section_header(title: str):
-    st.markdown(f"""
+    st.markdown(
+        f"""
     <div style="margin:2rem 0 1rem 0;">
         <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.45rem;">
             <span style="color:{GOLD};font-size:0.8rem;">✦</span>
@@ -80,7 +84,9 @@ def section_header(title: str):
         </div>
         <div style="height:1px;background:linear-gradient(90deg,rgba(197,165,90,0.5),rgba(197,165,90,0.08),transparent);max-width:400px;"></div>
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 def gold_divider():
@@ -94,7 +100,8 @@ def sidebar_legend(items: list):
     """items: [(label, description, (r_float, g_float, b_float)), ...]"""
     for label, desc, rgb in items:
         r, g, b = (int(c * 255) for c in rgb)
-        st.sidebar.markdown(f"""
+        st.sidebar.markdown(
+            f"""
         <div style="display:flex;align-items:center;gap:10px;margin:7px 0;">
             <div style="
                 width:13px;height:13px;border-radius:50%;flex-shrink:0;
@@ -106,11 +113,14 @@ def sidebar_legend(items: list):
                 <strong style="color:{GOLD_LIGHT};">{label}</strong> — {desc}
             </span>
         </div>
-        """, unsafe_allow_html=True)
+        """,
+            unsafe_allow_html=True,
+        )
 
 
 def sidebar_status(text: str):
-    st.sidebar.markdown(f"""
+    st.sidebar.markdown(
+        f"""
     <div style="
         background:rgba(197,165,90,0.08);
         border:1px solid rgba(197,165,90,0.25);
@@ -120,7 +130,9 @@ def sidebar_status(text: str):
     ">
         <span style="color:{GOLD};font-size:0.7rem;">✦</span> {text}
     </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════

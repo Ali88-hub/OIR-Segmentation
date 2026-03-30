@@ -15,26 +15,26 @@ import argparse
 import os
 from pathlib import Path
 
+import albumentations as A
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
-import matplotlib.pyplot as plt
+from albumentations.pytorch import ToTensorV2
 from PIL import Image
 from scipy import ndimage
 from scipy.ndimage import distance_transform_edt
-from skimage.measure import label as sk_label, regionprops
+from skimage.measure import label as sk_label
+from skimage.measure import regionprops
 from torch.amp import autocast
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
 
 from src.config import Config
 from src.model import build_model
 
-
 MASK_COLORS = {
-    "nv": (0.7, 0.0, 1.0),          # purple (matches app.py)
-    "vo": (0.0, 0.5, 1.0),         # blue
-    "retina": (0.0, 0.8, 0.0), # green
+    "nv": (0.7, 0.0, 1.0),  # purple (matches app.py)
+    "vo": (0.0, 0.5, 1.0),  # blue
+    "retina": (0.0, 0.8, 0.0),  # green
 }
 
 
@@ -63,11 +63,13 @@ MAX_INPUT_SIZE = 1024  # images larger than this are downscaled before inference
 
 def get_preprocess(config):
     """Validation-style preprocessing: resize + normalize."""
-    return A.Compose([
-        A.Resize(config.image_size[0], config.image_size[1]),
-        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
-        ToTensorV2(),
-    ])
+    return A.Compose(
+        [
+            A.Resize(config.image_size[0], config.image_size[1]),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ToTensorV2(),
+        ]
+    )
 
 
 def resize_to_max(image_np, max_side=MAX_INPUT_SIZE):
@@ -132,17 +134,24 @@ def predict_single(model, image_np, preprocess, device, config, tta=False, thres
     probs_np = probs.numpy()
     masks_prob = np.zeros((config.num_classes, orig_h, orig_w), dtype=np.float32)
     for i in range(config.num_classes):
-        resized = np.array(
-            Image.fromarray(probs_np[i]).resize((orig_w, orig_h), Image.BILINEAR)
-        )
+        resized = np.array(Image.fromarray(probs_np[i]).resize((orig_w, orig_h), Image.BILINEAR))
         masks_prob[i] = resized
 
     masks_binary = (masks_prob > threshold).astype(np.uint8)
     return masks_prob, masks_binary
 
 
-def predict_tiled(model, image_np, preprocess, device, config, tta=False, threshold=0.5,
-                  tile_size=512, overlap=128):
+def predict_tiled(
+    model,
+    image_np,
+    preprocess,
+    device,
+    config,
+    tta=False,
+    threshold=0.5,
+    tile_size=512,
+    overlap=128,
+):
     """Tiled inference for large images with overlap blending.
 
     Splits the image into overlapping tiles, runs inference on each, then
@@ -160,7 +169,7 @@ def predict_tiled(model, image_np, preprocess, device, config, tta=False, thresh
         w = np.ones(size, dtype=np.float64)
         ramp = np.linspace(0, 1, overlap, endpoint=False)
         w[:overlap] = ramp
-        w[size - overlap:] = ramp[::-1]
+        w[size - overlap :] = ramp[::-1]
         return w
 
     blend_h = make_blend_1d(tile_size)
@@ -185,7 +194,7 @@ def predict_tiled(model, image_np, preprocess, device, config, tta=False, thresh
     count = 0
     for y in ys:
         for x in xs:
-            tile = image_np[y:y + tile_size, x:x + tile_size]
+            tile = image_np[y : y + tile_size, x : x + tile_size]
             # Pad if tile is smaller than expected (edge case)
             th, tw = tile.shape[:2]
             if th < tile_size or tw < tile_size:
@@ -208,8 +217,8 @@ def predict_tiled(model, image_np, preprocess, device, config, tta=False, thresh
             actual_h = min(tile_size, orig_h - y)
             actual_w = min(tile_size, orig_w - x)
             b = blend_2d[:actual_h, :actual_w]
-            acc[:, y:y + actual_h, x:x + actual_w] += logits_tile[:, :actual_h, :actual_w] * b
-            weight[y:y + actual_h, x:x + actual_w] += b
+            acc[:, y : y + actual_h, x : x + actual_w] += logits_tile[:, :actual_h, :actual_w] * b
+            weight[y : y + actual_h, x : x + actual_w] += b
 
             count += 1
             if count % 50 == 0 or count == total:
@@ -224,6 +233,7 @@ def predict_tiled(model, image_np, preprocess, device, config, tta=False, thresh
 
 
 # ── Post-processing ───────────────────────────────────────────────────────────
+
 
 def postprocess_mask(mask: np.ndarray) -> np.ndarray:
     """Fill holes then keep only the largest connected component."""
@@ -281,8 +291,11 @@ def postprocess_nv(
     # B. Vessel mask suppression
     if vessel_suppression and vessel_mask is not None:
         if vessel_mask.shape != result.shape:
-            vessel_mask = np.array(Image.fromarray(vessel_mask).resize(
-                (result.shape[1], result.shape[0]), Image.NEAREST))
+            vessel_mask = np.array(
+                Image.fromarray(vessel_mask).resize(
+                    (result.shape[1], result.shape[0]), Image.NEAREST
+                )
+            )
         result = result & (~vessel_mask.astype(bool)).astype(np.uint8)
 
     # C. Morphological component filtering
@@ -312,6 +325,7 @@ def postprocess_all(
         config: Config object (uses defaults if None)
     """
     from src.config import Config
+
     if config is None:
         config = Config()
 
@@ -401,10 +415,11 @@ def save_masks(masks_binary, mask_names, output_dir, stem):
         mask_img.save(os.path.join(output_dir, f"{stem}_{name}.png"))
 
 
-def save_overlay_large(image_np, masks_binary, masks_prob, mask_names, output_dir, stem,
-                        max_side=4096):
+def save_overlay_large(
+    image_np, masks_binary, masks_prob, mask_names, output_dir, stem, max_side=4096
+):
     """Save 4-panel overlay for large images using PIL (matches save_overlay layout)."""
-    from PIL import ImageDraw, ImageFont
+    from PIL import ImageDraw
 
     orig_h, orig_w = image_np.shape[:2]
 
@@ -417,9 +432,9 @@ def save_overlay_large(image_np, masks_binary, masks_prob, mask_names, output_di
     base = Image.fromarray(image_np).resize((pw, ph), Image.LANCZOS)
 
     mask_colors_rgba = {
-        "nv":         (178,   0, 255),
-        "vo":         (  0, 128, 255),
-        "retina":     (  0, 204,   0),
+        "nv": (178, 0, 255),
+        "vo": (0, 128, 255),
+        "retina": (0, 204, 0),
     }
 
     title_h = 30  # pixels for title bar
@@ -452,8 +467,7 @@ def save_overlay_large(image_np, masks_binary, masks_prob, mask_names, output_di
         panel = Image.fromarray(blended_uint8)
         x_offset = (i + 1) * pw
         canvas.paste(panel.convert("RGB"), (x_offset, title_h))
-        draw.text((x_offset + pw // 2, title_h // 2), name,
-                  fill=tuple(color), anchor="mm")
+        draw.text((x_offset + pw // 2, title_h // 2), name, fill=tuple(color), anchor="mm")
 
     out_path = os.path.join(output_dir, f"{stem}_overlay.png")
     canvas.save(out_path)
@@ -494,8 +508,7 @@ def predict_directory(model, input_dir, output_dir, config, device, tta=False, t
     input_path = Path(input_dir)
     extensions = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
     image_files = sorted(
-        f for f in input_path.iterdir()
-        if f.suffix.lower() in extensions and f.is_file()
+        f for f in input_path.iterdir() if f.suffix.lower() in extensions and f.is_file()
     )
 
     if not image_files:
@@ -520,11 +533,13 @@ def predict_directory(model, input_dir, output_dir, config, device, tta=False, t
         stem = img_path.stem
         save_masks(masks_binary, config.mask_names, mask_dir, stem)
         if orig_h > MAX_INPUT_SIZE or orig_w > MAX_INPUT_SIZE:
-            save_overlay_large(image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem)
+            save_overlay_large(
+                image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem
+            )
         else:
             save_overlay(image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem)
 
-        print(f"  [{i+1}/{len(image_files)}] {img_path.name}")
+        print(f"  [{i + 1}/{len(image_files)}] {img_path.name}")
 
     print(f"Done. Masks saved to {mask_dir}, overlays to {overlay_dir}")
 
@@ -537,8 +552,11 @@ def main():
     parser.add_argument("--tta", action="store_true", help="Enable test-time augmentation")
     parser.add_argument("--threshold", type=float, default=0.5, help="Binarization threshold")
     parser.add_argument("--device", default=None, help="Device (auto-detected if not set)")
-    parser.add_argument("--no-attention", action="store_true",
-                        help="Disable decoder attention (for checkpoints trained without scSE)")
+    parser.add_argument(
+        "--no-attention",
+        action="store_true",
+        help="Disable decoder attention (for checkpoints trained without scSE)",
+    )
     args = parser.parse_args()
 
     config = Config()
@@ -562,8 +580,7 @@ def main():
         image_np = np.array(Image.open(input_path).convert("RGB"))
         orig_h, orig_w = image_np.shape[:2]
         masks_prob, masks_binary = predict_single(
-            model, image_np, preprocess, device, config,
-            tta=args.tta, threshold=args.threshold
+            model, image_np, preprocess, device, config, tta=args.tta, threshold=args.threshold
         )
         stem = input_path.stem
         mask_dir = os.path.join(args.output, "masks")
@@ -572,14 +589,15 @@ def main():
         os.makedirs(overlay_dir, exist_ok=True)
         save_masks(masks_binary, config.mask_names, mask_dir, stem)
         if orig_h > MAX_INPUT_SIZE or orig_w > MAX_INPUT_SIZE:
-            save_overlay_large(image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem)
+            save_overlay_large(
+                image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem
+            )
         else:
             save_overlay(image_np, masks_binary, masks_prob, config.mask_names, overlay_dir, stem)
         print(f"Saved to {args.output}")
     elif input_path.is_dir():
         predict_directory(
-            model, args.input, args.output, config, device,
-            tta=args.tta, threshold=args.threshold
+            model, args.input, args.output, config, device, tta=args.tta, threshold=args.threshold
         )
     else:
         print(f"Error: {args.input} is not a valid file or directory")
