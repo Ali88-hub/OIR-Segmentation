@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.local
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# Claude Code memory
+.claude/
+
+# ── Large training data — transfer manually ───────────────────────────────────
+data/
+
+# ── Model checkpoints & outputs — large binaries ─────────────────────────────
+# Distributed via GitHub Releases or HuggingFace Hub
+mpv2_output/
+Model V2 output/
+Model V3 output/
+Model V4 output/
+
+# ── Old training runs ─────────────────────────────────────────────────────────
+output/
+
+# ── Generated prediction outputs ─────────────────────────────────────────────
+predictions/
+predictions_P12_NOX/
+predictions_p56/
+
+# ── Input images — raw microscopy (transfer manually) ────────────────────────
+input_images/
+
+# ── Comparison images (generated, large) ─────────────────────────────────────
+comparisons_3models/
+comparisons_4models/
+comparisons_separated/
+comparisons_separated_worst_nv/
+postprocess_comparisons/
+
+# ── Model weight directories ─────────────────────────────────────────────────
+vo_model/
+old_vo_model/
+
+# ── Generated overlays & masks ───────────────────────────────────────────────
+overlays/
+masks/
+
+# ── ChromaDB vector database (regenerable) ───────────────────────────────────
+chroma_db/
+
+# ── Research papers (not code) ───────────────────────────────────────────────
+docs/
+
+# ── Generated HTML previews ──────────────────────────────────────────────────
+mouse_preview.html
+
+# ── Zip archives ──────────────────────────────────────────────────────────────
+*.zip
+
+# ── Kaggle notebook state ─────────────────────────────────────────────────────
+output kfold_search/

@@ -1,0 +1,16 @@
+# Exclude everything by default, then whitelist
+*
+
+# Allow only what the Dockerfile needs
+!requirements.txt
+!api.py
+!src/
+!mpv2_output/checkpoints/best_model.pth
+
+# Always exclude
+__pycache__/
+*.pyc
+*.pyo
+.git/
+.gitignore
+.env
