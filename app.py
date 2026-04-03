@@ -192,10 +192,18 @@ def get_model(ckpt_mtime: float):
 
 
 if not Path(CHECKPOINT).exists():
-    st.error(
-        f"Checkpoint not found: `{CHECKPOINT}`\n\nPlace `best_model.pth` at `Model V4 output/checkpoints/`."
-    )
-    st.stop()
+    with st.spinner("Downloading model from Hugging Face Hub…"):
+        try:
+            from download_model import ensure_checkpoint
+
+            ensure_checkpoint()
+        except Exception as e:
+            st.error(
+                f"Checkpoint not found: `{CHECKPOINT}`\n\n"
+                f"Auto-download failed: {e}\n\n"
+                f"Place `best_model.pth` at `Model V4 output/checkpoints/` manually."
+            )
+            st.stop()
 
 model, preprocess, config, device = get_model(os.path.getmtime(CHECKPOINT))
 sidebar_status(f"Model loaded  ·  {device}")

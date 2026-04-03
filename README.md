@@ -25,8 +25,7 @@ Retinal image segmentation tool for Oxygen-Induced Retinopathy (OIR) research. S
 ├── ingest.py              # Fetch & embed PubMed abstracts into ChromaDB
 ├── config.py              # RAG configuration (API keys, search params)
 ├── theme.py               # Streamlit UI theme
-├── Dockerfile             # Container deployment (FastAPI)
-├── requirements.txt       # Python dependencies
+├── requirements.txt       # Pinned Python dependencies
 └── .env.example           # Environment variable template
 ```
 
@@ -34,8 +33,8 @@ Retinal image segmentation tool for Oxygen-Induced Retinopathy (OIR) research. S
 
 ### Requirements
 
-- Python 3.11 or 3.12
-- Model checkpoint (`best_model.pth`)
+- Python 3.11
+- Model checkpoint (`best_model.pth`) — downloaded automatically from Hugging Face on first run
 
 ### Installation
 
@@ -56,7 +55,7 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The app opens at `http://localhost:8501`.
+The app opens at `http://localhost:8501`. On first launch, the model checkpoint (~227 MB) is downloaded automatically from Hugging Face Hub.
 
 ## PubMed RAG (Optional)
 
@@ -85,15 +84,6 @@ Enables AI-powered interpretation of segmentation results using PubMed literatur
 | Input size | 768 x 768 |
 | Output classes | 3 (NV, VO, Retina) |
 | Loss | BCE + Focal Tversky (class-weighted) |
-
-## Docker
-
-```bash
-docker build -t oirseg .
-docker run -p 8000:8000 oirseg
-```
-
-Exposes a FastAPI endpoint on port 8000.
 
 ## License
 

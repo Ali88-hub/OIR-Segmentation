@@ -79,5 +79,8 @@ mouse_preview.html
 # ── Zip archives ──────────────────────────────────────────────────────────────
 *.zip
 
+# ── PDFs (presentations, papers) ─────────────────────────────────────────────
+*.pdf
+
 # ── Kaggle notebook state ─────────────────────────────────────────────────────
 output kfold_search/
