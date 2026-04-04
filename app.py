@@ -321,7 +321,7 @@ with tab_single:
 
         col_img, col_space, col_info = st.columns([2, 2, 1])
         with col_img:
-            st.image(image_pil, caption=f"Input: {uploaded.name}", use_container_width=True)
+            st.image(image_pil, caption=f"Input: {uploaded.name}", width="stretch")
         with col_info:
             st.metric("Width", f"{orig_w} px")
             st.metric("Height", f"{orig_h} px")
@@ -552,7 +552,7 @@ with tab_single:
                 col.image(
                     overlay_uint8,
                     caption=MASK_LABELS.get(name, name.upper()),
-                    use_container_width=True,
+                    width="stretch",
                 )
                 buf = io.BytesIO()
                 Image.fromarray(overlay_uint8).save(buf, format="PNG")
@@ -565,7 +565,7 @@ with tab_single:
                     col.image(
                         (masks_prob[i] * 255).astype(np.uint8),
                         caption=f"{MASK_LABELS.get(name, name.upper())} prob",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
             section_header("Download")
