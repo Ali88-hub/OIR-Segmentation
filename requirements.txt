@@ -1,5 +1,6 @@
-torch==2.11.0
-torchvision==0.26.0
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0+cpu
+torchvision==0.26.0+cpu
 segmentation-models-pytorch==0.5.0
 albumentations==2.0.8
 scipy==1.17.1
