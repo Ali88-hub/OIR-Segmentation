@@ -34,24 +34,35 @@ from src.predict import (
 )
 from theme import inject_theme, page_header, section_header, sidebar_legend, sidebar_status
 
-# ── RAG (optional) ────────────────────────────────────────────────────────────
-try:
-    import rag as _rag
-
-    _rag_available = True
-except ImportError:
-    _rag_available = False
+# ── RAG (lazy — only imported when user accesses RAG features) ────────────────
+_rag = None
 
 
-if _rag_available:
+def _ensure_rag():
+    """Lazily import the rag module on first use to avoid loading
+    sentence-transformers/transformers at startup (saves ~500 MB RAM)."""
+    global _rag
+    if _rag is None:
+        import rag as _rag_mod
 
-    @st.cache_resource(show_spinner="Loading PubMed index…")
-    def _get_rag_retriever():
-        return _rag._load_retriever()
-else:
+        _rag = _rag_mod
+    return _rag
 
-    def _get_rag_retriever():
-        return None, None
+
+def _rag_available() -> bool:
+    """Check if RAG dependencies are installed without importing them."""
+    import importlib.util
+
+    for mod in ("sentence_transformers", "anthropic", "chromadb"):
+        if importlib.util.find_spec(mod) is None:
+            return False
+    return True
+
+
+@st.cache_resource(show_spinner="Loading PubMed index…")
+def _get_rag_retriever():
+    mod = _ensure_rag()
+    return mod._load_retriever()
 
 
 # ── Filename parser ────────────────────────────────────────────────────────────
@@ -599,7 +610,7 @@ with tab_single:
         if saved and saved["filename"] == uploaded.name:
             section_header("AI Interpretation")
 
-            if not _rag_available:
+            if not _rag_available():
                 st.warning(
                     "RAG module not available — install dependencies to enable AI interpretation."
                 )
@@ -638,7 +649,7 @@ with tab_single:
                 ):
                     try:
                         _get_rag_retriever()  # ensure retriever is loaded
-                        sources, stream = _rag.explain_segmentation(saved["metrics"], meta)
+                        sources, stream = _ensure_rag().explain_segmentation(saved["metrics"], meta)
                     except RuntimeError as err:
                         st.error(str(err))
                     else:
@@ -836,12 +847,10 @@ with tab_batch:
 #  LITERATURE
 # ═════════════════════════════════════════════════════════════════════════════
 with tab_lit:
-    if not _rag_available:
+    if not _rag_available():
         st.error("Could not import PubMed RAG module. Check that all dependencies are installed.")
 
-    if _rag_available:
-        _get_rag_retriever()  # warm-up: loads PubMedBERT + ChromaDB once, cached across reruns
-
+    if _rag_available():
         with st.expander("Ingest from PubMed"):
             pubmed_queries = st.text_area(
                 "Search queries (one per line)",
@@ -925,7 +934,7 @@ with tab_lit:
             if st.button("Search", type="primary", use_container_width=True, key="run_search"):
                 if query.strip():
                     with st.spinner("Searching PubMed index…"):
-                        results = _rag.retrieve(query.strip())
+                        results = _ensure_rag().retrieve(query.strip())
                     if not results:
                         st.info(
                             "No results found. Make sure the PubMed RAG database has been ingested (`python ingest.py`)."
@@ -981,7 +990,7 @@ with tab_lit:
                     for m in st.session_state.rag_messages
                 ]
                 try:
-                    sources, stream = _rag.chat_stream(prompt, history)
+                    sources, stream = _ensure_rag().chat_stream(prompt, history)
                 except RuntimeError as err:
                     st.error(str(err))
                 else:
