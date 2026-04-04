@@ -677,7 +677,11 @@ with tab_batch:
         key="batch_upload",
     )
 
+    MAX_BATCH = 50
+
     if batch_files:
+        if len(batch_files) > MAX_BATCH:
+            st.warning(f"Maximum {MAX_BATCH} images per batch. Please remove some files.")
         st.markdown(
             f"""
         <p style="color:#9A8B6F;font-size:0.85rem;margin:0.3rem 0 1rem 0;">
@@ -688,7 +692,11 @@ with tab_batch:
         )
 
         run_batch = st.button(
-            "Run Batch Segmentation", type="primary", use_container_width=True, key="run_batch"
+            "Run Batch Segmentation",
+            type="primary",
+            use_container_width=True,
+            key="run_batch",
+            disabled=len(batch_files) > MAX_BATCH,
         )
 
         if run_batch:
