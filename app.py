@@ -49,6 +49,7 @@ def _ensure_rag():
     return _rag
 
 
+@st.cache_data(show_spinner=False)
 def _rag_available() -> bool:
     """Check if RAG dependencies are installed without importing them."""
     import importlib.util
@@ -152,6 +153,26 @@ MASK_COLORS = {
     "background": (0.3, 0.3, 1.0),
 }
 _MAX_RAG_MESSAGES = 50
+
+
+def _render_sources(sources: list[dict], title: str = "Sources") -> None:
+    """Render a list of literature sources inside an expander."""
+    if not sources:
+        return
+    with st.expander(f"{title} ({len(sources)})"):
+        for src in sources:
+            label = (
+                f"[{src['ref']}]  {src['title']}  ({src['year']})"
+                if src["year"]
+                else f"[{src['ref']}]  {src['title']}"
+            )
+            st.markdown(f"**{label}**")
+            if src["authors"]:
+                st.caption(f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`")
+            if src["url"]:
+                st.link_button("Open in PubMed", src["url"])
+
+
 MASK_LABELS = {
     "nv": "Neovascular",
     "vo": "Vaso-Obliterated",
@@ -323,12 +344,14 @@ with tab_single:
         key="single_upload",
     )
 
+    image_pil = None
     if uploaded is not None:
         try:
             image_pil = Image.open(uploaded).convert("RGB")
         except (Image.UnidentifiedImageError, OSError) as e:
             st.error(f"Could not open image: {e}")
-            st.stop()
+
+    if image_pil is not None:
         image_np = np.array(image_pil)
         orig_h, orig_w = image_np.shape[:2]
 
@@ -520,7 +543,7 @@ with tab_single:
             # Denominator = total retinal area (Connor et al. 2009 standard).
             # "retina" = retinal tissue; union of all masks = retinal area.
             retinal_mask = np.zeros((orig_h, orig_w), dtype=np.uint8)
-            for _m in raw:
+            for _m in masks_binary:
                 retinal_mask |= _m
             total_pixels = int(retinal_mask.sum()) or orig_h * orig_w
 
@@ -656,21 +679,7 @@ with tab_single:
                         st.error(str(err))
                     else:
                         answer = st.write_stream(stream)
-                        if sources:
-                            with st.expander(f"Literature sources ({len(sources)})"):
-                                for src in sources:
-                                    label = (
-                                        f"[{src['ref']}]  {src['title']}  ({src['year']})"
-                                        if src["year"]
-                                        else f"[{src['ref']}]  {src['title']}"
-                                    )
-                                    st.markdown(f"**{label}**")
-                                    if src["authors"]:
-                                        st.caption(
-                                            f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
-                                        )
-                                    if src["url"]:
-                                        st.link_button("Open in PubMed", src["url"])
+                        _render_sources(sources, title="Literature sources")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -751,7 +760,7 @@ with tab_batch:
 
                     # Retinal area denominator (Connor et al. 2009 standard)
                     retinal_mask_b = np.zeros((h, w), dtype=np.uint8)
-                    for _m in raw:
+                    for _m in masks_binary:
                         retinal_mask_b |= _m
                     total_px = int(retinal_mask_b.sum()) or h * w
 
@@ -851,8 +860,7 @@ with tab_batch:
 with tab_lit:
     if not _rag_available():
         st.error("Could not import PubMed RAG module. Check that all dependencies are installed.")
-
-    if _rag_available():
+    else:
         with st.expander("Ingest from PubMed"):
             pubmed_queries = st.text_area(
                 "Search queries (one per line)",
@@ -968,20 +976,7 @@ with tab_lit:
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
                     if msg["role"] == "assistant" and msg.get("sources"):
-                        with st.expander(f"Sources ({len(msg['sources'])})"):
-                            for src in msg["sources"]:
-                                label = (
-                                    f"[{src['ref']}]  {src['title']}  ({src['year']})"
-                                    if src["year"]
-                                    else f"[{src['ref']}]  {src['title']}"
-                                )
-                                st.markdown(f"**{label}**")
-                                if src["authors"]:
-                                    st.caption(
-                                        f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
-                                    )
-                                if src["url"]:
-                                    st.link_button("Open in PubMed", src["url"])
+                        _render_sources(msg["sources"])
 
             if prompt := st.chat_input("Ask about OIR / ROP / retinal vasculature…"):
                 with st.chat_message("user"):
@@ -998,21 +993,7 @@ with tab_lit:
                 else:
                     with st.chat_message("assistant"):
                         answer = st.write_stream(stream)
-                        if sources:
-                            with st.expander(f"Sources ({len(sources)})"):
-                                for src in sources:
-                                    label = (
-                                        f"[{src['ref']}]  {src['title']}  ({src['year']})"
-                                        if src["year"]
-                                        else f"[{src['ref']}]  {src['title']}"
-                                    )
-                                    st.markdown(f"**{label}**")
-                                    if src["authors"]:
-                                        st.caption(
-                                            f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`"
-                                        )
-                                    if src["url"]:
-                                        st.link_button("Open in PubMed", src["url"])
+                        _render_sources(sources)
 
                     st.session_state.rag_messages.append({"role": "user", "content": prompt})
                     st.session_state.rag_messages.append(
