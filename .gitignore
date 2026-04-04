@@ -67,8 +67,8 @@ old_vo_model/
 overlays/
 masks/
 
-# ── ChromaDB vector database (regenerable) ───────────────────────────────────
-chroma_db/
+# ── ChromaDB vector database ─────────────────────────────────────────────────
+# Tracked: ships a seed DB so RAG works on first deploy; auto-ingestion backfills if empty.
 
 # ── Research papers (not code) ───────────────────────────────────────────────
 docs/

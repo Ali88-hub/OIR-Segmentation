@@ -47,7 +47,13 @@ if _rag_available:
 
     @st.cache_resource(show_spinner="Loading PubMed index…")
     def _get_rag_retriever():
-        return _rag._load_retriever()
+        embed_model, collection = _rag._load_retriever()
+        if collection.count() == 0:
+            from config import DEFAULT_QUERIES
+            from ingest import ingest as _ingest_pubmed
+
+            _ingest_pubmed(DEFAULT_QUERIES, model=embed_model)
+        return embed_model, collection
 else:
 
     def _get_rag_retriever():
