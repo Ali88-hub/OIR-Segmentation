@@ -164,6 +164,7 @@ st.set_page_config(
     page_title="OIRseg — Retinal Segmentation",
     page_icon="🔬",
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 
 inject_theme()
@@ -282,7 +283,7 @@ st.sidebar.markdown(
 
 tta = st.sidebar.checkbox(
     "Test-Time Augmentation (TTA)",
-    value=False,
+    value=True,
     help="Average predictions over flips — slower but more accurate",
 )
 show_prob = st.sidebar.checkbox("Show probability maps", value=False)
