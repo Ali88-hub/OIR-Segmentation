@@ -341,7 +341,7 @@ button[data-testid="stBaseButton-primary"]:hover{
 [data-testid="stSlider"] [data-testid="stThumbValue"]{color:var(--gold-light)!important}
 
 /* ── Checkbox ── */
-[data-testid="stCheckbox"] label span{color:var(--text-body)!important}
+[data-testid="stCheckbox"] label span{color:var(--gold-light)!important}
 
 /* ── Alerts ── */
 .stAlert,[data-testid="stAlert"]{
@@ -392,6 +392,56 @@ button[data-testid="stBaseButton-primary"]:hover{
     background:var(--glass-bg)!important;border:1px solid var(--border-gold)!important;
     color:var(--text-primary)!important;border-radius:8px!important;
 }
+
+/* ── Widget labels (global) ── */
+.stNumberInput label p,
+.stTextInput label p,
+.stTextArea label p,
+.stSelectbox label p,
+.stRadio label p,
+.stFileUploader label p{
+    color:var(--gold-light)!important;
+}
+.stRadio [role="radiogroup"] label span{color:var(--text-body)!important}
+
+/* ── Tabs ── */
+.stTabs [data-baseweb="tab-list"]{
+    border-bottom:1px solid var(--border-gold)!important;
+    gap:0!important;
+}
+.stTabs [data-baseweb="tab"]{
+    color:var(--text-sec)!important;
+    font-family:'Inter',sans-serif!important;font-weight:500!important;
+    font-size:0.95rem!important;letter-spacing:0.03em;
+    border-bottom:2px solid transparent!important;
+    padding:0.6rem 1.4rem!important;
+    transition:all .25s ease!important;
+}
+.stTabs [data-baseweb="tab"]:hover{
+    color:var(--gold-light)!important;
+    background:rgba(197,165,90,0.06)!important;
+}
+.stTabs [aria-selected="true"]{
+    color:var(--gold-light)!important;
+    border-bottom:2px solid var(--gold)!important;
+}
+.stTabs [data-baseweb="tab-highlight"]{background-color:var(--gold)!important}
+.stTabs [data-baseweb="tab-border"]{display:none!important}
+
+/* ── Chat input ── */
+.stChatInput textarea{
+    background:var(--glass-bg)!important;border:1px solid var(--border-gold)!important;
+    color:var(--text-primary)!important;
+}
+.stChatInput textarea::placeholder{color:var(--text-sec)!important}
+
+/* ── Expander ── */
+.stExpander{
+    border:1px solid var(--border-gold)!important;
+    border-radius:10px!important;
+    background:var(--glass-bg)!important;
+}
+.stExpander summary span{color:var(--gold-light)!important}
 </style>"""
 
 
