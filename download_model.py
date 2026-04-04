@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-CHECKPOINT_PATH = Path("Model V4 output/checkpoints/best_model.pth")
+CHECKPOINT_PATH = (
+    Path(__file__).resolve().parent / "Model V4 output" / "checkpoints" / "best_model.pth"
+)
 
 # ── Update these after uploading to Hugging Face ─────────────────────────────
 HF_REPO_ID = "OIRSEG/OIRSEG_V1"  # your HF repo

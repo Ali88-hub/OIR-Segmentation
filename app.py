@@ -142,7 +142,8 @@ def parse_filename(name: str) -> dict:
 
 
 # ── Constants ─────────────────────────────────────────────────────────────────
-CHECKPOINT = "Model V4 output/checkpoints/best_model.pth"
+_PROJECT_ROOT = Path(__file__).resolve().parent
+CHECKPOINT = str(_PROJECT_ROOT / "Model V4 output" / "checkpoints" / "best_model.pth")
 Image.MAX_IMAGE_PIXELS = 500_000_000  # 500 MP cap; allow large retinal flatmounts
 MASK_COLORS = {
     "nv": (1.0, 0.0, 0.0),
