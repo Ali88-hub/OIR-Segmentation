@@ -1,3 +1,14 @@
+---
+title: OIRseg
+emoji: 🔬
+colorFrom: yellow
+colorTo: red
+sdk: streamlit
+sdk_version: "1.55.0"
+app_file: app.py
+pinned: false
+---
+
 # OIRseg
 
 Retinal image segmentation tool for Oxygen-Induced Retinopathy (OIR) research. Segments retinal flatmount images into three zones: **neovascular (NV)**, **vaso-obliterated (VO)**, and **retinal tissue**, with quantitative area measurements.

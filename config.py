@@ -19,7 +19,7 @@ ANTHROPIC_API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 # Quality is comparable to OpenAI embeddings for biomedical retrieval.
 EMBEDDING_MODEL = "NeuML/pubmedbert-base-embeddings"
 
-CHROMA_PATH = Path("chroma_db")
+CHROMA_PATH = Path(__file__).resolve().parent / "chroma_db"
 COLLECTION_NAME = "pubmed_retina"
 
 # Default search queries for initial ingestion
