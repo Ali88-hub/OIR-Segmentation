@@ -7,7 +7,7 @@ from pathlib import Path
 CHECKPOINT_PATH = Path("Model V4 output/checkpoints/best_model.pth")
 
 # ── Update these after uploading to Hugging Face ─────────────────────────────
-HF_REPO_ID = "Ali88-hub/OIRseg"  # your HF repo
+HF_REPO_ID = "OIRSEG/OIRSEG_V1"  # your HF repo
 HF_FILENAME = "best_model.pth"  # filename inside the repo
 
 
