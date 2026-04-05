@@ -13,6 +13,8 @@ from collections.abc import Iterator
 
 import anthropic
 import chromadb
+import numpy as np
+from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 from config import (
@@ -20,9 +22,12 @@ from config import (
     CHROMA_PATH,
     COLLECTION_NAME,
     EMBEDDING_MODEL,
+    HYBRID_SEARCH,
     LLM_MAX_TOKENS,
     LLM_MODEL,
     MIN_SCORE,
+    RETRIEVAL_CANDIDATES,
+    RRF_K,
     TOP_K,
 )
 
@@ -31,6 +36,11 @@ _embed_model: SentenceTransformer | None = None
 _collection: chromadb.Collection | None = None
 _llm_client: anthropic.Anthropic | None = None
 _load_lock = threading.Lock()
+
+# BM25 index singletons
+_bm25_index: BM25Okapi | None = None
+_bm25_doc_ids: list[str] | None = None
+_bm25_doc_count: int = 0  # track collection size for cache invalidation
 
 SYSTEM_PROMPT = """\
 You are a biomedical research assistant specialising in:
@@ -98,17 +108,103 @@ def _load() -> tuple[SentenceTransformer, chromadb.Collection, anthropic.Anthrop
     return model, collection, _llm_client
 
 
-def retrieve(query: str, top_k: int = TOP_K, min_score: float = MIN_SCORE) -> list[dict]:
-    """Return the top-k most relevant PubMed abstracts for a query."""
+# ---------------------------------------------------------------------------
+#  BM25 index (lazy, rebuilt when collection grows)
+# ---------------------------------------------------------------------------
+
+
+def _build_bm25_index(collection: chromadb.Collection) -> None:
+    """Build (or rebuild) the BM25 index from all ChromaDB documents."""
+    global _bm25_index, _bm25_doc_ids, _bm25_doc_count
+
+    data = collection.get(include=["documents"])
+    doc_ids = data["ids"]
+    documents = data["documents"]
+
+    tokenized = [doc.lower().split() for doc in documents]
+    _bm25_index = BM25Okapi(tokenized) if tokenized else None
+    _bm25_doc_ids = doc_ids
+    _bm25_doc_count = len(doc_ids)
+
+
+def _ensure_bm25(collection: chromadb.Collection) -> BM25Okapi | None:
+    """Return the BM25 index, rebuilding if the collection has grown."""
+    if _bm25_index is None or collection.count() != _bm25_doc_count:
+        _build_bm25_index(collection)
+    return _bm25_index
+
+
+def _bm25_search(
+    query: str, collection: chromadb.Collection, top_k: int
+) -> list[tuple[str, float]]:
+    """Return top-k (doc_id, normalized_score) pairs via BM25."""
+    bm25 = _ensure_bm25(collection)
+    if bm25 is None or not _bm25_doc_ids:
+        return []
+
+    tokenized_query = query.lower().split()
+    scores = bm25.get_scores(tokenized_query)
+    max_score = float(np.max(scores)) if len(scores) > 0 else 0.0
+    if max_score <= 0:
+        return []
+
+    top_indices = np.argsort(scores)[::-1][:top_k]
+    return [
+        (_bm25_doc_ids[idx], float(scores[idx]) / max_score)
+        for idx in top_indices
+        if scores[idx] > 0
+    ]
+
+
+def _rrf_merge(
+    vector_results: list[dict],
+    bm25_results: list[tuple[str, float]],
+    k: int = RRF_K,
+) -> list[dict]:
+    """Merge vector and BM25 results via Reciprocal Rank Fusion."""
+    rrf_scores: dict[str, float] = {}
+    doc_map: dict[str, dict] = {}
+
+    # Vector results — use doc ID (pmid or chunk ID) for merging
+    for rank, chunk in enumerate(vector_results):
+        doc_id = chunk.get("pmid") or chunk.get("id", str(rank))
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+        doc_map[doc_id] = chunk
+
+    # BM25 results
+    for rank, (doc_id, _bm25_score) in enumerate(bm25_results):
+        rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank + 1)
+        # BM25 may return docs not in vector results — skip those
+        # (we don't have their full metadata; they'll be picked up if they pass vector threshold)
+
+    # Sort by RRF score, only return docs we have full metadata for
+    ranked = sorted(
+        [(doc_id, score) for doc_id, score in rrf_scores.items() if doc_id in doc_map],
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    return [doc_map[doc_id] for doc_id, _ in ranked]
+
+
+def retrieve(
+    query: str,
+    top_k: int = TOP_K,
+    min_score: float = MIN_SCORE,
+    hybrid: bool = HYBRID_SEARCH,
+) -> list[dict]:
+    """Return the top-k most relevant documents for a query."""
     model, collection = _load_retriever()
 
     if collection.count() == 0:
         return []
 
+    n_candidates = max(top_k, RETRIEVAL_CANDIDATES) if hybrid else top_k
+
     embedding = model.encode([query], normalize_embeddings=True).tolist()[0]
+    n_query = min(n_candidates, collection.count())
     results = collection.query(
         query_embeddings=[embedding],
-        n_results=min(top_k, collection.count()),
+        n_results=n_query,
         include=["documents", "metadatas", "distances"],
     )
 
@@ -118,25 +214,40 @@ def retrieve(query: str, top_k: int = TOP_K, min_score: float = MIN_SCORE) -> li
         results["metadatas"][0],
         results["distances"][0],
     ):
-        score = round(1.0 - float(dist), 4)  # cosine similarity
+        score = round(1.0 - float(dist) / 2, 4)  # cosine sim from L2² on unit-norm vecs
         if score < min_score:
             continue
         pmid = meta.get("pmid", "")
+        pmcid = meta.get("pmcid", "")
+        if pmcid:
+            url = f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{pmcid}/"
+        elif pmid:
+            url = f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+        else:
+            url = ""
         chunks.append(
             {
                 "text": doc,
                 "pmid": pmid,
+                "pmcid": pmcid,
                 "title": meta["title"],
                 "authors": meta.get("authors", ""),
                 "year": meta.get("year", ""),
                 "journal": meta.get("journal", ""),
+                "section": meta.get("section", ""),
                 "score": score,
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pmid}/" if pmid else "",
+                "url": url,
                 "source": meta.get("source", "pubmed"),
                 "filename": meta.get("filename", ""),
             }
         )
-    return chunks
+
+    if hybrid and chunks:
+        bm25_results = _bm25_search(query, collection, n_candidates)
+        if bm25_results:
+            chunks = _rrf_merge(chunks, bm25_results)
+
+    return chunks[:top_k]
 
 
 def ask(question: str, top_k: int = TOP_K) -> dict:
@@ -154,10 +265,7 @@ def ask(question: str, top_k: int = TOP_K) -> dict:
     if not chunks:
         _, collection = _load_retriever()
         if collection.count() == 0:
-            answer = (
-                "The database is empty. "
-                "Run `python ingest.py` first to populate it."
-            )
+            answer = "The database is empty. Run `python ingest.py` first to populate it."
         else:
             answer = (
                 "No abstracts above the relevance threshold were found for this question. "
@@ -192,10 +300,12 @@ def ask(question: str, top_k: int = TOP_K) -> dict:
         {
             "ref": i + 1,
             "pmid": c["pmid"],
+            "pmcid": c.get("pmcid", ""),
             "title": c["title"],
             "authors": c["authors"],
             "year": c["year"],
             "journal": c["journal"],
+            "section": c.get("section", ""),
             "score": c["score"],
             "url": c["url"],
         }
@@ -210,7 +320,7 @@ def ask_stream(question: str, top_k: int = TOP_K) -> tuple[list[dict], Iterator[
 
     Returns:
         sources  — list of source dicts (available immediately, before LLM starts)
-        stream   — generator yielding text chunks as they arrive from Ollama
+        stream   — generator yielding text chunks as they arrive
     """
     chunks = retrieve(question, top_k=top_k)
 
@@ -243,10 +353,12 @@ def ask_stream(question: str, top_k: int = TOP_K) -> tuple[list[dict], Iterator[
         {
             "ref": i + 1,
             "pmid": c["pmid"],
+            "pmcid": c.get("pmcid", ""),
             "title": c["title"],
             "authors": c["authors"],
             "year": c["year"],
             "journal": c["journal"],
+            "section": c.get("section", ""),
             "score": c["score"],
             "url": c["url"],
             "filename": c.get("filename", ""),
@@ -281,8 +393,8 @@ def chat_stream(question: str, history: list[dict]) -> tuple[list[dict], Iterato
         _, collection = _load_retriever()
         msg = (
             "The database is empty. Run `python ingest.py` first."
-            if collection.count() == 0 else
-            "No abstracts found above the relevance threshold. Try rephrasing."
+            if collection.count() == 0
+            else "No abstracts found above the relevance threshold. Try rephrasing."
         )
 
         def _empty() -> Iterator[str]:
@@ -303,10 +415,12 @@ def chat_stream(question: str, history: list[dict]) -> tuple[list[dict], Iterato
         {
             "ref": i + 1,
             "pmid": c["pmid"],
+            "pmcid": c.get("pmcid", ""),
             "title": c["title"],
             "authors": c["authors"],
             "year": c["year"],
             "journal": c["journal"],
+            "section": c.get("section", ""),
             "score": c["score"],
             "url": c["url"],
             "filename": c.get("filename", ""),
@@ -379,8 +493,11 @@ def explain_segmentation(
 
     # Format metrics
     metrics_lines = []
-    for key, label in [("nv", "Neovascular (NV)"), ("vo", "Vaso-obliterated (VO)"),
-                       ("retina", "Retina (non-vascular retinal tissue)")]:
+    for key, label in [
+        ("nv", "Neovascular (NV)"),
+        ("vo", "Vaso-obliterated (VO)"),
+        ("retina", "Retina (non-vascular retinal tissue)"),
+    ]:
         pct = metrics.get(f"{key}_pct")
         if pct is not None:
             metrics_lines.append(f"  {label}: {pct:.2f}% of retinal area")
@@ -410,10 +527,12 @@ def explain_segmentation(
         {
             "ref": i + 1,
             "pmid": c["pmid"],
+            "pmcid": c.get("pmcid", ""),
             "title": c["title"],
             "authors": c["authors"],
             "year": c["year"],
             "journal": c["journal"],
+            "section": c.get("section", ""),
             "score": c["score"],
             "url": c["url"],
             "filename": c.get("filename", ""),

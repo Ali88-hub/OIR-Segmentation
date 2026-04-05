@@ -51,9 +51,6 @@ def page_header(title: str, subtitle: str, caption: str):
                 background-clip:text;
             ">{title}</h1>
         </div>
-        <span id="oirseg-mouse-toggle"
-            data-running="0"
-            style="position:absolute;top:calc(0.35rem + 15px);left:50%;transform:translateX(-50%);font-size:2.4rem;line-height:1;cursor:pointer;display:inline-flex;align-items:center;">🐭</span>
         <p style="
             color:{GOLD_MUTED};font-family:'Inter',sans-serif;
             font-size:0.85rem;letter-spacing:0.12em;text-transform:uppercase;
@@ -452,66 +449,6 @@ button[data-testid="stBaseButton-primary"]:hover{
 _JS = """<script>
 (function(){
     var d=window.parent.document;
-
-    // ── Mouse toggle: static emoji ↔ mouse_preview.html SVG animation ──────────
-    var MOUSE_SVG = '<svg width="52" height="52" viewBox="48 16 130 128" xmlns="http://www.w3.org/2000/svg" style="display:block;vertical-align:middle;">'
-      +'<defs>'
-      +'<radialGradient id="mt_wheelGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#C5A55A" stop-opacity="0.18"/><stop offset="100%" stop-color="#C5A55A" stop-opacity="0"/></radialGradient>'
-      +'<linearGradient id="mt_goldGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#E8D5A3"/><stop offset="100%" stop-color="#8B7635"/></linearGradient>'
-      +'<radialGradient id="mt_bodyGrad" cx="50%" cy="30%" r="60%"><stop offset="0%" stop-color="#CFC4AA"/><stop offset="100%" stop-color="#8A7B62"/></radialGradient>'
-      +'<radialGradient id="mt_bellyGrad" cx="50%" cy="60%" r="55%"><stop offset="0%" stop-color="#E0D5BC"/><stop offset="100%" stop-color="#B0A282"/></radialGradient>'
-      +'</defs>'
-      +'<circle cx="110" cy="78" r="68" fill="url(#mt_wheelGlow)"/>'
-      +'<g><animateTransform attributeName="transform" type="rotate" from="0 110 78" to="360 110 78" dur="1.3s" repeatCount="indefinite"/>'
-      +'<circle cx="110" cy="78" r="60" fill="none" stroke="#C5A55A" stroke-width="4.5" opacity="0.8"/>'
-      +'<circle cx="110" cy="78" r="60" fill="none" stroke="#8B7635" stroke-width="2" stroke-dasharray="5 8" opacity="0.3"/>'
-      +'<circle cx="110" cy="78" r="52" fill="none" stroke="#8B7635" stroke-width="1.2" opacity="0.3"/>'
-      +'<circle cx="110" cy="78" r="8" fill="#C5A55A" opacity="0.9"/>'
-      +'<circle cx="110" cy="78" r="4" fill="#1a1612"/>'
-      +'<g stroke="url(#mt_goldGrad)" stroke-width="2.2" opacity="0.6" stroke-linecap="round">'
-      +'<line x1="110" y1="70" x2="110" y2="26"/><line x1="110" y1="86" x2="110" y2="130"/>'
-      +'<line x1="102" y1="78" x2="58" y2="78"/><line x1="118" y1="78" x2="162" y2="78"/>'
-      +'<line x1="104" y1="72" x2="74" y2="42"/><line x1="116" y1="84" x2="146" y2="114"/>'
-      +'<line x1="116" y1="72" x2="146" y2="42"/><line x1="104" y1="84" x2="74" y2="114"/>'
-      +'</g></g>'
-      +'<g><animateTransform attributeName="transform" type="translate" values="0,0; 0,-1.5; 0,0; 0,-1.5; 0,0" dur="0.5s" repeatCount="indefinite"/>'
-      +'<g transform="translate(117,117) scale(1.2)">'
-      +'<path fill="none" stroke="#9A8B6F" stroke-width="2" stroke-linecap="round"><animate attributeName="d" values="M -15 2 C -25 5 -33 -2 -31 -11 Q -29 -17 -24 -15;M -15 2 C -23 -1 -30 -10 -27 -17 Q -24 -22 -19 -19;M -15 2 C -25 5 -33 -2 -31 -11 Q -29 -17 -24 -15" dur="0.5s" repeatCount="indefinite"/></path>'
-      +'<g opacity="0.65"><line stroke="#7A6B52" stroke-width="2.8" stroke-linecap="round" x1="-7" y1="8"><animate attributeName="x2" values="-13;-4;-13" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="11;9;11" dur="0.5s" repeatCount="indefinite"/></line><line stroke="#7A6B52" stroke-width="2.2" stroke-linecap="round"><animate attributeName="x1" values="-13;-4;-13" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y1" values="8;6;8" dur="0.5s" repeatCount="indefinite"/><animate attributeName="x2" values="-16;-5;-16" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="13;10;13" dur="0.5s" repeatCount="indefinite"/></line><ellipse rx="3.2" ry="1.6" fill="#7A6B52"><animate attributeName="cx" values="-16;-5;-16" dur="0.5s" repeatCount="indefinite"/><animate attributeName="cy" values="13;10;13" dur="0.5s" repeatCount="indefinite"/></ellipse></g>'
-      +'<g opacity="0.65"><line stroke="#7A6B52" stroke-width="2.5" stroke-linecap="round" x1="6" y1="8"><animate attributeName="x2" values="1;10;1" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="11;9;11" dur="0.5s" repeatCount="indefinite"/></line><line stroke="#7A6B52" stroke-width="2" stroke-linecap="round"><animate attributeName="x1" values="1;10;1" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y1" values="8;6;8" dur="0.5s" repeatCount="indefinite"/><animate attributeName="x2" values="-1;13;-1" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="13;10;13" dur="0.5s" repeatCount="indefinite"/></line><ellipse rx="2.8" ry="1.5" fill="#7A6B52"><animate attributeName="cx" values="-1;13;-1" dur="0.5s" repeatCount="indefinite"/><animate attributeName="cy" values="13;10;13" dur="0.5s" repeatCount="indefinite"/></ellipse></g>'
-      +'<ellipse cx="-2" cy="-1" rx="18" ry="11" fill="url(#mt_bodyGrad)"/>'
-      +'<ellipse cx="-1" cy="7" rx="13" ry="4" fill="url(#mt_bellyGrad)" opacity="0.55"/>'
-      +'<g><line stroke="#9A8B70" stroke-width="2.8" stroke-linecap="round" x1="-7" y1="8"><animate attributeName="x2" values="-4;-13;-4" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="9;11;9" dur="0.5s" repeatCount="indefinite"/></line><line stroke="#9A8B70" stroke-width="2.2" stroke-linecap="round"><animate attributeName="x1" values="-4;-13;-4" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y1" values="6;8;6" dur="0.5s" repeatCount="indefinite"/><animate attributeName="x2" values="-5;-16;-5" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="10;13;10" dur="0.5s" repeatCount="indefinite"/></line><ellipse rx="3.2" ry="1.6" fill="#BFB39A"><animate attributeName="cx" values="-5;-16;-5" dur="0.5s" repeatCount="indefinite"/><animate attributeName="cy" values="10;13;10" dur="0.5s" repeatCount="indefinite"/></ellipse></g>'
-      +'<g><line stroke="#9A8B70" stroke-width="2.5" stroke-linecap="round" x1="6" y1="8"><animate attributeName="x2" values="10;1;10" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="9;11;9" dur="0.5s" repeatCount="indefinite"/></line><line stroke="#9A8B70" stroke-width="2" stroke-linecap="round"><animate attributeName="x1" values="10;1;10" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y1" values="6;8;6" dur="0.5s" repeatCount="indefinite"/><animate attributeName="x2" values="13;-1;13" dur="0.5s" repeatCount="indefinite"/><animate attributeName="y2" values="10;13;10" dur="0.5s" repeatCount="indefinite"/></line><ellipse rx="2.8" ry="1.5" fill="#BFB39A"><animate attributeName="cx" values="13;-1;13" dur="0.5s" repeatCount="indefinite"/><animate attributeName="cy" values="10;13;10" dur="0.5s" repeatCount="indefinite"/></ellipse></g>'
-      +'<ellipse cx="12" cy="-5" rx="5.5" ry="4" fill="url(#mt_bodyGrad)"/>'
-      +'<circle cx="18" cy="-8" r="8.5" fill="url(#mt_bodyGrad)"/>'
-      +'<ellipse cx="14" cy="-16" rx="4.5" ry="5.5" fill="url(#mt_bodyGrad)"/>'
-      +'<ellipse cx="14" cy="-16" rx="2.8" ry="3.8" fill="#C5A55A" opacity="0.25"/>'
-      +'<circle cx="22" cy="-10" r="2.5" fill="#1a1612"/>'
-      +'<circle cx="23" cy="-11" r="0.9" fill="#E8D5A3" opacity="0.9"/>'
-      +'<ellipse cx="26" cy="-7" rx="1.8" ry="1.3" fill="#C5A55A" opacity="0.6"/>'
-      +'<g stroke="#9A8B6F" stroke-width="0.75" opacity="0.6" stroke-linecap="round"><line x1="26" y1="-8" x2="35" y2="-10"/><line x1="26" y1="-7" x2="35" y2="-7"/><line x1="26" y1="-6" x2="35" y2="-4"/></g>'
-      +'</g></g>'
-      +'</svg>';
-
-    function bindMouseToggle(){
-        var el=d.getElementById('oirseg-mouse-toggle');
-        if(!el||el.getAttribute('data-bound'))return;
-        el.setAttribute('data-bound','1');
-        el.addEventListener('click',function(){
-            var running=el.getAttribute('data-running')==='1';
-            if(running){
-                el.setAttribute('data-running','0');
-                el.innerHTML='🐭';
-                el.style.fontSize='2rem';
-            }else{
-                el.setAttribute('data-running','1');
-                el.innerHTML=MOUSE_SVG;
-                el.style.fontSize='0';
-            }
-        });
-    }
-    setInterval(bindMouseToggle, 300);
 
     // ── Mouse-tracking golden light ──────────────────────────────────────────
     if(!d.getElementById('oirseg-light')){

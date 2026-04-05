@@ -23,6 +23,7 @@ anthropic==0.86.0
 python-dotenv==1.2.2
 biopython==1.87
 pymupdf==1.27.2.2
+rank-bm25>=0.2.2
 
 # Model download
 huggingface-hub>=0.20.0

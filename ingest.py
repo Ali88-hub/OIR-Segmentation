@@ -1,9 +1,10 @@
-"""Fetch PubMed abstracts and embed them into a local ChromaDB collection.
+"""Fetch PubMed abstracts (and PMC full text) and embed them into a local ChromaDB collection.
 
 Usage:
     python ingest.py                              # default retina/ROP queries
     python ingest.py "vaso-obliteration" "VEGF"   # custom queries
     python ingest.py --max 500                    # fetch more per query
+    python ingest.py --no-fulltext                # skip PMC full-text, abstracts only
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import chromadb
@@ -23,6 +25,7 @@ from config import (
     COLLECTION_NAME,
     DEFAULT_QUERIES,
     EMBEDDING_MODEL,
+    FULLTEXT_CHUNK_SIZE,
     MAX_RESULTS_PER_QUERY,
     NCBI_API_KEY,
     NCBI_EMAIL,
@@ -106,14 +109,284 @@ def fetch_abstracts(pmids: list[str]) -> list[dict]:
     return articles
 
 
+def fetch_pmcids(pmids: list[str]) -> dict[str, str]:
+    """Map PubMed IDs to PubMed Central IDs via Entrez elink.
+
+    Returns a dict of {pmid: pmcid} for articles available in PMC.
+    """
+    if not pmids:
+        return {}
+
+    mapping: dict[str, str] = {}
+    batch_size = 100
+    for i in range(0, len(pmids), batch_size):
+        batch = pmids[i : i + batch_size]
+        try:
+            handle = Entrez.elink(
+                dbfrom="pubmed",
+                db="pmc",
+                id=batch,
+                linkname="pubmed_pmc",
+            )
+            records = Entrez.read(handle)
+            handle.close()
+        except Exception as exc:
+            print(f"  Warning: elink failed for batch — {exc}")
+            continue
+
+        for record in records:
+            pm_id = str(record["IdList"][0]) if record["IdList"] else ""
+            if not pm_id:
+                continue
+            link_sets = record.get("LinkSetDb", [])
+            for ls in link_sets:
+                if ls.get("LinkName") == "pubmed_pmc":
+                    for link in ls.get("Link", []):
+                        mapping[pm_id] = str(link["Id"])
+                        break  # take first PMC link
+
+        time.sleep(0.35 if not NCBI_API_KEY else 0.11)
+
+    return mapping
+
+
+def _extract_text(elem: ET.Element) -> str:
+    """Recursively extract all text content from an XML element, including tails."""
+    parts: list[str] = []
+    if elem.text:
+        parts.append(elem.text)
+    for child in elem:
+        parts.append(_extract_text(child))
+        if child.tail:
+            parts.append(child.tail)
+    return "".join(parts)
+
+
+def _parse_pmc_xml(xml_bytes: bytes, pmid_to_pmcid: dict[str, str]) -> list[dict]:
+    """Parse PMC JATS XML and extract structured sections.
+
+    Returns list of article dicts with 'sections' field.
+    """
+    # Reverse mapping: pmcid -> pmid
+    pmcid_to_pmid = {v: k for k, v in pmid_to_pmcid.items()}
+
+    articles = []
+    # PMC efetch returns <pmc-articleset> with multiple <article> elements
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError:
+        print("  Warning: failed to parse PMC XML")
+        return []
+
+    # Handle both single article and article-set
+    if root.tag == "article":
+        article_elems = [root]
+    else:
+        article_elems = root.findall(".//article")
+
+    for art_elem in article_elems:
+        try:
+            # Extract PMC ID
+            front = art_elem.find(".//front")
+            if front is None:
+                continue
+
+            article_meta = front.find(".//article-meta")
+            if article_meta is None:
+                continue
+
+            pmcid = ""
+            pmid = ""
+            for aid in article_meta.findall(".//article-id"):
+                if aid.get("pub-id-type") == "pmc":
+                    pmcid = (aid.text or "").strip()
+                elif aid.get("pub-id-type") == "pmid":
+                    pmid = (aid.text or "").strip()
+
+            if not pmcid and not pmid:
+                continue
+
+            # Resolve PMID<->PMCID
+            if not pmid:
+                pmid = pmcid_to_pmid.get(pmcid, "")
+            if not pmcid:
+                pmcid = pmid_to_pmcid.get(pmid, "")
+
+            # Title
+            title_elem = article_meta.find(".//article-title")
+            title = _extract_text(title_elem).strip() if title_elem is not None else ""
+
+            # Authors
+            authors_parsed = []
+            for contrib in article_meta.findall(".//contrib[@contrib-type='author']"):
+                surname = contrib.findtext(".//surname", "")
+                given = contrib.findtext(".//given-names", "")
+                if surname:
+                    authors_parsed.append(f"{surname} {given}".strip())
+            authors = ", ".join(authors_parsed[:3])
+            if len(authors_parsed) > 3:
+                authors += " et al."
+
+            # Year
+            pub_date = article_meta.find(".//pub-date")
+            year = ""
+            if pub_date is not None:
+                year = pub_date.findtext("year", "")
+
+            # Journal
+            journal_meta = front.find(".//journal-meta")
+            journal = ""
+            if journal_meta is not None:
+                journal = journal_meta.findtext(".//journal-title", "")
+
+            # Abstract
+            sections: list[dict[str, str]] = []
+            abstract_elem = article_meta.find(".//abstract")
+            if abstract_elem is not None:
+                abstract_text = _extract_text(abstract_elem).strip()
+                if abstract_text:
+                    sections.append({"name": "Abstract", "text": abstract_text})
+
+            # Body sections
+            body = art_elem.find(".//body")
+            if body is not None:
+                for sec in body.findall("sec"):
+                    sec_title_elem = sec.find("title")
+                    sec_name = (
+                        _extract_text(sec_title_elem).strip()
+                        if sec_title_elem is not None
+                        else "Body"
+                    )
+                    sec_text = _extract_text(sec).strip()
+                    # Remove the section title from the beginning of the text
+                    if sec_name and sec_text.startswith(sec_name):
+                        sec_text = sec_text[len(sec_name) :].strip()
+                    if sec_text:
+                        sections.append({"name": sec_name, "text": sec_text})
+
+            if not sections:
+                continue
+
+            articles.append(
+                {
+                    "pmid": pmid,
+                    "pmcid": pmcid,
+                    "title": title,
+                    "authors": authors,
+                    "year": year,
+                    "journal": journal,
+                    "sections": sections,
+                }
+            )
+        except (KeyError, IndexError, AttributeError):
+            continue
+
+    return articles
+
+
+def fetch_fulltext(pmcids: list[str], pmid_to_pmcid: dict[str, str]) -> list[dict]:
+    """Fetch full-text JATS XML from PMC for a list of PMC IDs.
+
+    Returns list of article dicts with structured 'sections' field.
+    """
+    if not pmcids:
+        return []
+
+    all_articles: list[dict] = []
+    batch_size = 20  # PMC returns large XML — smaller batches
+    for i in range(0, len(pmcids), batch_size):
+        batch = pmcids[i : i + batch_size]
+        try:
+            handle = Entrez.efetch(
+                db="pmc",
+                id=",".join(batch),
+                rettype="full",
+                retmode="xml",
+            )
+            xml_bytes = handle.read()
+            handle.close()
+        except Exception as exc:
+            print(f"  Warning: PMC efetch failed for batch — {exc}")
+            continue
+
+        parsed = _parse_pmc_xml(xml_bytes, pmid_to_pmcid)
+        all_articles.extend(parsed)
+        time.sleep(0.35 if not NCBI_API_KEY else 0.11)
+
+    return all_articles
+
+
+def _normalize_section_name(name: str) -> str:
+    """Normalize section titles to canonical names for metadata."""
+    lower = name.lower().strip()
+    if "abstract" in lower:
+        return "abstract"
+    if "intro" in lower:
+        return "introduction"
+    if "method" in lower or "material" in lower:
+        return "methods"
+    if "result" in lower:
+        return "results"
+    if "discuss" in lower:
+        return "discussion"
+    if "conclu" in lower:
+        return "conclusion"
+    return lower
+
+
+def _chunk_sections(article: dict, chunk_size: int = FULLTEXT_CHUNK_SIZE) -> list[dict]:
+    """Chunk a full-text article by section, returning embeddable chunks with metadata."""
+    chunks: list[dict] = []
+    pmcid = article["pmcid"]
+    pmid = article["pmid"]
+
+    for si, section in enumerate(article["sections"]):
+        sec_name = section["name"]
+        sec_normalized = _normalize_section_name(sec_name)
+        text_chunks = _chunk_text(section["text"], chunk_size)
+
+        for ci, chunk_text in enumerate(text_chunks):
+            # Content-addressed ID (same pattern as ingest_local)
+            chunk_id = (
+                "pmc_"
+                + hashlib.md5((pmcid + str(si) + str(ci) + chunk_text).encode()).hexdigest()[:16]
+            )
+            # Prefix with section name for embedding context
+            embedded_text = f"[{sec_name}] {chunk_text}"
+
+            chunks.append(
+                {
+                    "id": chunk_id,
+                    "text": embedded_text,
+                    "metadata": {
+                        "pmid": pmid,
+                        "pmcid": pmcid,
+                        "title": article["title"],
+                        "authors": article["authors"],
+                        "year": article["year"],
+                        "journal": article["journal"],
+                        "section": sec_normalized,
+                        "source": "pmc",
+                    },
+                }
+            )
+
+    return chunks
+
+
 def ingest(
     queries: list[str],
     max_per_query: int = MAX_RESULTS_PER_QUERY,
     model: SentenceTransformer | None = None,
+    fulltext: bool = True,
 ) -> int:
     """Fetch papers for all queries, embed, and store in ChromaDB.
 
-    Returns the number of newly added documents.
+    When *fulltext* is True (default), articles available in PubMed Central
+    are fetched as full-text and chunked by section.  Articles without PMC
+    availability fall back to abstract-only ingestion.
+
+    Returns the number of newly added documents/chunks.
     Pass a pre-loaded SentenceTransformer to avoid reloading the model from disk.
     """
     _setup_entrez()
@@ -133,9 +406,13 @@ def ingest(
     existing_ids = set(collection.get(include=[])["ids"])
     print(f"Documents already in DB: {len(existing_ids)}")
 
-    # Collect all unique articles across queries
-    all_articles: list[dict] = []
-    seen_pmids: set[str] = set(existing_ids)
+    # Items to embed: each has 'id', 'text', 'metadata'
+    embed_items: list[dict] = []
+    seen_pmids: set[str] = set()
+    # Also track existing PMIDs (IDs that are raw PMIDs, not chunk IDs)
+    for eid in existing_ids:
+        if eid.isdigit():
+            seen_pmids.add(eid)
 
     for query in queries:
         print(f"\nSearching PubMed: '{query}'")
@@ -148,48 +425,79 @@ def ingest(
         print(f"  {len(pmids)} results, {len(new_pmids)} new")
         seen_pmids.update(new_pmids)
 
-        # Fetch in batches of 100 (NCBI limit)
-        for i in range(0, len(new_pmids), 100):
-            batch_pmids = new_pmids[i : i + 100]
+        if not new_pmids:
+            continue
+
+        # --- Full-text path: resolve PMC IDs and fetch where available ---
+        pmids_for_abstract = list(new_pmids)  # default: all go to abstract path
+
+        if fulltext:
+            print("  Resolving PMC availability…")
+            pmid_to_pmcid = fetch_pmcids(new_pmids)
+            pmc_pmids = [p for p in new_pmids if p in pmid_to_pmcid]
+            pmids_for_abstract = [p for p in new_pmids if p not in pmid_to_pmcid]
+            print(f"  {len(pmc_pmids)} available in PMC, {len(pmids_for_abstract)} abstract-only")
+
+            if pmc_pmids:
+                pmcids = [pmid_to_pmcid[p] for p in pmc_pmids]
+                ft_articles = fetch_fulltext(pmcids, pmid_to_pmcid)
+                print(f"  Parsed {len(ft_articles)} full-text article(s)")
+                for art in ft_articles:
+                    chunks = _chunk_sections(art)
+                    for chunk in chunks:
+                        if chunk["id"] not in existing_ids:
+                            embed_items.append(chunk)
+
+        # --- Abstract-only path (unchanged logic) ---
+        for i in range(0, len(pmids_for_abstract), 100):
+            batch_pmids = pmids_for_abstract[i : i + 100]
             try:
                 articles = fetch_abstracts(batch_pmids)
             except Exception as exc:
                 print(f"  Warning: failed to fetch abstracts for batch — {exc}")
                 continue
-            all_articles.extend(articles)
-            time.sleep(0.35 if not NCBI_API_KEY else 0.11)  # respect rate limits
+            for a in articles:
+                if a["pmid"] not in existing_ids:
+                    embed_items.append(
+                        {
+                            "id": a["pmid"],
+                            "text": a["text"],
+                            "metadata": {
+                                "pmid": a["pmid"],
+                                "pmcid": "",
+                                "title": a["title"],
+                                "authors": a["authors"],
+                                "year": a["year"],
+                                "journal": a["journal"],
+                                "section": "abstract",
+                                "source": "pubmed",
+                            },
+                        }
+                    )
+            time.sleep(0.35 if not NCBI_API_KEY else 0.11)
 
-    if not all_articles:
+    if not embed_items:
         print("\nNothing new to add.")
         return 0
 
-    print(f"\nEmbedding {len(all_articles)} new articles …")
+    print(f"\nEmbedding {len(embed_items)} new item(s) …")
 
     batch_size = 64
-    for i in tqdm(range(0, len(all_articles), batch_size), desc="Embedding"):
-        batch = all_articles[i : i + batch_size]
-        texts = [a["text"] for a in batch]
+    for i in tqdm(range(0, len(embed_items), batch_size), desc="Embedding"):
+        batch = embed_items[i : i + batch_size]
+        texts = [item["text"] for item in batch]
         embeddings = model.encode(texts, normalize_embeddings=True).tolist()
 
         collection.add(
-            ids=[a["pmid"] for a in batch],
+            ids=[item["id"] for item in batch],
             embeddings=embeddings,
             documents=texts,
-            metadatas=[
-                {
-                    "pmid": a["pmid"],
-                    "title": a["title"],
-                    "authors": a["authors"],
-                    "year": a["year"],
-                    "journal": a["journal"],
-                }
-                for a in batch
-            ],
+            metadatas=[item["metadata"] for item in batch],
         )
 
     total = collection.count()
-    print(f"\nDone. Added {len(all_articles)} articles. Total in DB: {total}")
-    return len(all_articles)
+    print(f"\nDone. Added {len(embed_items)} item(s). Total in DB: {total}")
+    return len(embed_items)
 
 
 def _chunk_text(text: str, chunk_size: int = 800) -> list[str]:
@@ -348,7 +656,7 @@ def ingest_local(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch PubMed abstracts and embed into local ChromaDB."
+        description="Fetch PubMed abstracts (and PMC full text) and embed into local ChromaDB."
     )
     parser.add_argument(
         "queries",
@@ -374,6 +682,19 @@ def main() -> None:
         default=800,
         help="Characters per chunk for local files (default: 800)",
     )
+    fulltext_group = parser.add_mutually_exclusive_group()
+    fulltext_group.add_argument(
+        "--fulltext",
+        action="store_true",
+        default=True,
+        help="Fetch full text from PMC when available (default)",
+    )
+    fulltext_group.add_argument(
+        "--no-fulltext",
+        dest="fulltext",
+        action="store_false",
+        help="Skip PMC full text — fetch abstracts only",
+    )
     args = parser.parse_args()
 
     if args.local:
@@ -389,7 +710,7 @@ def main() -> None:
         ingest_local(paths, chunk_size=args.chunk_size)
     else:
         queries = args.queries if args.queries else DEFAULT_QUERIES
-        ingest(queries, max_per_query=args.max)
+        ingest(queries, max_per_query=args.max, fulltext=args.fulltext)
 
 
 if __name__ == "__main__":

@@ -167,10 +167,18 @@ def _render_sources(sources: list[dict], title: str = "Sources") -> None:
                 else f"[{src['ref']}]  {src['title']}"
             )
             st.markdown(f"**{label}**")
+            meta_parts = []
             if src["authors"]:
-                st.caption(f"{src['authors']} · *{src['journal']}* · score: `{src['score']}`")
+                meta_parts.append(src["authors"])
+            meta_parts.append(f"*{src['journal']}*")
+            meta_parts.append(f"score: `{src['score']}`")
+            if src.get("section"):
+                meta_parts.append(f"section: `{src['section']}`")
+            if meta_parts:
+                st.caption(" · ".join(meta_parts))
             if src["url"]:
-                st.link_button("Open in PubMed", src["url"])
+                btn_label = "Open in PMC" if src.get("pmcid") else "Open in PubMed"
+                st.link_button(btn_label, src["url"])
 
 
 MASK_LABELS = {
@@ -876,6 +884,12 @@ with tab_lit:
                 step=10,
                 key="pubmed_max_results",
             )
+            pubmed_fulltext = st.checkbox(
+                "Fetch full text via PMC (open-access papers)",
+                value=True,
+                key="pubmed_fulltext",
+                help="When enabled, open-access articles are fetched as full text from PubMed Central and chunked by section.",
+            )
             if st.button(
                 "Fetch from PubMed", key="ingest_pubmed_btn", disabled=not pubmed_queries.strip()
             ):
@@ -884,12 +898,17 @@ with tab_lit:
                     from ingest import ingest as _ingest_pubmed
 
                     embed_model, _ = _get_rag_retriever()
-                    n = _ingest_pubmed(queries, max_per_query=pubmed_max, model=embed_model)
+                    n = _ingest_pubmed(
+                        queries,
+                        max_per_query=pubmed_max,
+                        model=embed_model,
+                        fulltext=pubmed_fulltext,
+                    )
                 if n:
-                    st.success(f"Added {n} new abstract(s) to the database.")
+                    st.success(f"Added {n} new document(s) to the database.")
                 else:
                     st.info(
-                        "No new abstracts found — may already be ingested or no results matched."
+                        "No new documents found — may already be ingested or no results matched."
                     )
 
         with st.expander("Ingest local data"):
@@ -950,7 +969,7 @@ with tab_lit:
                             "No results found. Make sure the PubMed RAG database has been ingested (`python ingest.py`)."
                         )
                     else:
-                        section_header(f"{len(results)} abstracts found")
+                        section_header(f"{len(results)} results found")
                         for src in results:
                             label = (
                                 f"[{src['score']:.2f}]  {src['title']}  ({src['year']})"
@@ -964,7 +983,10 @@ with tab_lit:
                                     st.caption(f"Local file: {src['filename']}")
                                 st.write(src["text"])
                                 if src["url"]:
-                                    st.link_button("Open in PubMed", src["url"])
+                                    btn_label = (
+                                        "Open in PMC" if src.get("pmcid") else "Open in PubMed"
+                                    )
+                                    st.link_button(btn_label, src["url"])
 
         else:  # Chat mode
             if st.session_state.rag_messages:
