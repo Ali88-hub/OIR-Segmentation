@@ -278,7 +278,7 @@ thresh_vo = st.sidebar.number_input(
     "VO — Vaso-Obliterated",
     0.01,
     0.99,
-    0.99,
+    0.69,
     0.01,
     format="%.2f",
     help="Recommended 0.55–0.63 · optimal 0.59 (V4)",
