@@ -51,6 +51,9 @@ class Config:
     copy_paste_prob: float = 0.5  # probability of NV copy-paste per training sample
 
     # NV Post-processing
+    nv_boundary_masking: bool = (
+        False  # gate NV to a band around VO edge (disabled — kills distant NV)
+    )
     nv_outside_px: int = 520  # VO boundary zone: how far outside VO NV can extend (px at 768x768)
     nv_inside_px: int = 260  # VO boundary zone: how far inside VO NV can extend (px at 768x768)
     nv_vessel_suppression: bool = True  # suppress NV predictions overlapping known vessel masks

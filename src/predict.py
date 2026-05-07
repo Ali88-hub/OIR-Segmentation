@@ -267,6 +267,7 @@ def postprocess_nv(
     min_area: int = 150,
     max_eccentricity: float = 0.985,
     vessel_suppression: bool = True,
+    boundary_masking: bool = True,
 ) -> np.ndarray:
     """Post-process NV mask to reduce false positives from normal vessels.
 
@@ -278,15 +279,16 @@ def postprocess_nv(
     result = nv_mask.copy()
 
     # A. VO-boundary spatial masking
-    vo_bool = vo_mask.astype(bool)
-    if vo_bool.any():
-        # Distance from each non-VO pixel to nearest VO pixel
-        dist_outside = distance_transform_edt(~vo_bool)
-        # Distance from each VO pixel to nearest non-VO pixel (VO interior depth)
-        dist_inside = distance_transform_edt(vo_bool)
-        # Boundary zone = within outside_px of VO edge (outside) and within inside_px (inside)
-        boundary_zone = (dist_outside <= outside_px) & (dist_inside <= inside_px)
-        result = result & boundary_zone.astype(np.uint8)
+    if boundary_masking:
+        vo_bool = vo_mask.astype(bool)
+        if vo_bool.any():
+            # Distance from each non-VO pixel to nearest VO pixel
+            dist_outside = distance_transform_edt(~vo_bool)
+            # Distance from each VO pixel to nearest non-VO pixel (VO interior depth)
+            dist_inside = distance_transform_edt(vo_bool)
+            # Boundary zone = within outside_px of VO edge (outside) and within inside_px (inside)
+            boundary_zone = (dist_outside <= outside_px) & (dist_inside <= inside_px)
+            result = result & boundary_zone.astype(np.uint8)
 
     # B. Vessel mask suppression
     if vessel_suppression and vessel_mask is not None:
@@ -353,6 +355,7 @@ def postprocess_all(
             min_area=config.nv_min_component_area,
             max_eccentricity=config.nv_max_eccentricity,
             vessel_suppression=config.nv_vessel_suppression,
+            boundary_masking=config.nv_boundary_masking,
         )
 
     return result
